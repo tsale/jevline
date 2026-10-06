@@ -10,7 +10,8 @@
 // (its timing, requests and tokens are as recorded then), so a later failure does not mean paying again.
 //
 // Ground truth: {"seed": {...}, "until": ISO time the ground truth covers up to,
-//   "processes": [{"name": "x.exe", "pid": 1, "start": ISO, "why": "..."}]}. Results after `until`
+//   "processes": [{"name": "x.exe", "pid": 1, "start": ISO, "why": "..."}]}. Only processes are scored
+// (addresses, domains and accounts in the incident are not in the ground truth); results after `until`
 // are listed but not scored. Live calls spend credit and send the telemetry to the providers.
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
@@ -24,7 +25,8 @@ import type {ProcessNode} from '../src/model.ts';
 const {values, positionals} = parseArgs({allowPositionals: true, options: {
   seed: {type: 'string'}, context: {type: 'string'}, truth: {type: 'string'}, out: {type: 'string', default: 'compare-results'},
   methods: {type: 'string', default: 'jev,jev-replay,llm-judge,llm-alone'}, llm: {type: 'string', default: 'z-ai/glm-5.3-flash'},
-  'chunk-chars': {type: 'string', default: '2000000'}, concurrency: {type: 'string', default: '8'},
+  // About 550,000 tokens of telemetry per request, so the request and its answer fit a 1M-token context.
+  'chunk-chars': {type: 'string', default: '1200000'}, concurrency: {type: 'string', default: '8'},
 }});
 if (!positionals.length || !values.seed || !values.context || !values.truth) throw new Error('usage: compare.ts <files...> --seed ... --context ... --truth truth.json');
 const methods = values.methods!.split(',');
@@ -55,14 +57,14 @@ interface Result {
 
 // ---- OpenRouter ------------------------------------------------------------------------------
 interface Chat { text: string; promptTokens: number; completionTokens: number; cost: number }
-async function chat(messages: {role: string; content: string}[], timeoutMs: number): Promise<Chat> {
+async function chat(messages: {role: string; content: string}[], timeoutMs: number, maxTokens = 32_768): Promise<Chat> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY is not set');
   let response: Response, text: string;
   try {  // The timeout covers reading the reply too, which is where a slow model spends its time.
     response = await fetch(OPENROUTER, {method: 'POST', signal: AbortSignal.timeout(timeoutMs),
       headers: {'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'Jevline benchmark'},
-      body: JSON.stringify({model: values.llm, messages, temperature: 0, response_format: {type: 'json_object'}, usage: {include: true}})});
+      body: JSON.stringify({model: values.llm, messages, temperature: 0, max_tokens: maxTokens, response_format: {type: 'json_object'}, usage: {include: true}})});
     text = await response.text();
   } catch (error) {
     throw new TransportError(`OpenRouter unreachable or timed out after ${timeoutMs / 1000} s (${(error as Error).name})`, true);
@@ -117,7 +119,7 @@ async function engineRun(method: string, transport: Transport, model: string, ca
   return {method, model, ms, prepMs, requests: calls.length, inputTokens: calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0),
     outputTokens: calls.reduce((s, c) => s + (c.output_tokens ?? 0), 0),
     cost: spend ? spend.cost : calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0) * JEV_PER_INPUT_TOKEN,
-    found: unfold(report.incident).filter(p => p.key !== seedKey).map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
+    found: unfold(report.incident).filter(p => p.key !== seedKey && p.type === 'process').map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
     note: [report.jev.answered_from_cache ? `${report.jev.answered_from_cache} answers from the cache` : '', timing].filter(Boolean).join('; ')};
 }
 
@@ -126,8 +128,9 @@ function fromReport(method: string, path: string): Result {
   const report = JSON.parse(readFileSync(path, 'utf8')) as {timings_ms: {investigate: number}; jev: {model: string; requests: number;
     answered_from_cache: number; input_tokens: number; output_tokens: number}; incident: ProcessRow[]};
   return {method, model: report.jev.model, ms: report.timings_ms.investigate, prepMs, requests: report.jev.requests - report.jev.answered_from_cache,
-    inputTokens: report.jev.input_tokens, outputTokens: report.jev.output_tokens, cost: report.jev.input_tokens * JEV_PER_INPUT_TOKEN,
-    found: unfold(report.incident).filter(p => p.key !== seedKey).map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
+    // Jev's price is known; another model's report has its tokens but not what the provider charged.
+    inputTokens: report.jev.input_tokens, outputTokens: report.jev.output_tokens, cost: method.startsWith('jev') ? report.jev.input_tokens * JEV_PER_INPUT_TOKEN : null,
+    found: unfold(report.incident).filter(p => p.key !== seedKey && p.type === 'process').map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
     note: `recorded in an earlier run (${path.split('/').at(-1)})${report.jev.answered_from_cache ? `; ${report.jev.answered_from_cache} answers from the cache` : ''}`};
 }
 
@@ -211,24 +214,30 @@ for (const spec of methods) {
   const [method, earlier] = spec.split('@') as [string, string | undefined];
   console.log(`Running ${spec}…`);
   let result: Result;
-  if (earlier) {
-    result = fromReport(method, earlier);
-  } else if (method === 'jev') {
-    const key = process.env.TYPESAFE_API_KEY;
-    if (!key) throw new Error('TYPESAFE_API_KEY is not set');
-    const cacheFile = join(values.out!, `jev-cache-${results.length + 1}.jsonl`);
-    firstJevCache ??= cacheFile;
-    result = await engineRun('jev', typesafe(key), MODEL, cacheFile);
-  } else if (method === 'jev-replay') {
-    if (!firstJevCache) throw new Error('jev-replay needs an earlier jev run');
-    result = await engineRun('jev-replay', async () => { throw new TransportError('replay made a call', false); }, MODEL, firstJevCache);
-  } else if (method === 'llm-judge') {
-    const spend = {cost: 0};
-    result = await engineRun('llm-judge', llmJudge(spend), values.llm!, undefined, spend);
-  } else if (method === 'llm-alone') {
-    result = await llmAlone();
-  } else {
-    throw new Error(`unknown method ${method}`);
+  try {
+    if (earlier) {
+      result = fromReport(method, earlier);
+    } else if (method === 'jev') {
+      const key = process.env.TYPESAFE_API_KEY;
+      if (!key) throw new Error('TYPESAFE_API_KEY is not set');
+      const cacheFile = join(values.out!, `jev-cache-${results.length + 1}.jsonl`);
+      firstJevCache ??= cacheFile;
+      result = await engineRun('jev', typesafe(key), MODEL, cacheFile);
+    } else if (method === 'jev-replay') {
+      if (!firstJevCache) throw new Error('jev-replay needs an earlier jev run');
+      result = await engineRun('jev-replay', async () => { throw new TransportError('replay made a call', false); }, MODEL, firstJevCache);
+    } else if (method === 'llm-judge') {
+      const spend = {cost: 0};
+      result = await engineRun('llm-judge', llmJudge(spend), values.llm!, undefined, spend);
+    } else if (method === 'llm-alone') {
+      result = await llmAlone();
+    } else {
+      throw new Error(`unknown method ${method}`);
+    }
+  } catch (error) {
+    // One method failing (a provider error, a context limit) must not lose the others' results.
+    console.log(`  ${spec} failed: ${(error as Error).message.slice(0, 300)}`);
+    continue;
   }
   results.push(result);
   writeFileSync(join(values.out!, 'partial.json'), JSON.stringify(results.map(({found, ...r}) => ({...r, found: found.length})), null, 1), {mode: 0o600});
