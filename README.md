@@ -25,7 +25,7 @@ It then asks [Jev](https://docs.typesafe.ai/), TypeSafe's structured-decision mo
 
 Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.exe`) led to credential theft, Cobalt Strike and several waves of payloads. Each run started from `2.8.exe` alone. It was scored against the analyst's attack chain: the 41 processes that followed, up to September 24.
 
-| Logs analyzed | Volume | Decisions by | Link threshold | Attack-chain processes found | Other processes included | Time | Cost |
+| Logs analyzed | Volume | Decisions by | Link threshold | Attack-chain processes found | Wrong links | Time | Cost |
 |---|---:|---|:---:|:---:|:---:|---:|---:|
 | Elastic Defend (EDR) | 705,017 records · 1.3 GB | **Jev** | 0.8 | **33 of 41** | 1 | **10 s** | **$0.03** |
 | Windows event logs | 310,942 records · 1.0 GB | **Jev** | 0.8 | **37 of 41** | **0** | **6 s** | **$0.03** |
@@ -41,7 +41,7 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 
 **How to read it.**
 - **Link threshold:** a candidate joins the incident when the model's probability that it belongs is 0.8 or higher (the default, `--threshold`). Answers within 0.05 of it are marked for review.
-- **Other processes included:** processes in the incident before September 24 that the analyst's chain doesn't list.
+- **Wrong links:** processes linked into the incident before September 24 that the analyst's chain doesn't list.
 - **Time:** from opening the files to the finished incident, including 4 to 8 s of reading and linking, with 8 requests in flight.
 - **Cost:** Jev at TypeSafe's published $42 per billion input tokens; GLM 5.3 Flash at OpenRouter's list price ($0.15 per million input tokens, $0.50 per million output).
 - **The incident is larger than the scored window.** It also has the C2 and Telegram addresses, generated malware domains, and the activity after September 24, such as hundreds of relaunches of a beacon.
