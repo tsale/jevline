@@ -72,6 +72,7 @@ function starCountHtml(repoUrl, count) {
  * A module that imports from Node would not run in a browser, so it fails the build.
  */
 function engineModules(entry = ENGINE_ENTRY) {
+  if (typeof stripTypeScriptTypes !== 'function') throw new Error(`Node.js ${process.version} cannot strip TypeScript types; use Node.js 22.18 or newer`);
   const modules = new Map(), queue = [entry];
   while (queue.length) {
     const file = queue.pop();

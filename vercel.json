@@ -7,7 +7,7 @@
   "functions": {
     "api/jev.js": {
       "maxDuration": 60,
-      "includeFiles": "engine/src/{investigate,links,entities,normalize}.ts"
+      "includeFiles": "engine/src/*.ts"
     }
   },
   "headers": [
