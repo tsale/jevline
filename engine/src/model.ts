@@ -7,7 +7,7 @@ export type Kind =
   | 'process_start' | 'process_end'
   | 'inject'          // A wrote into or started a thread in B (Sysmon 8, EDR injection APIs)
   | 'process_access'  // A opened a handle to B (Sysmon 10); `access` has the mask
-  | 'file_create' | 'file_delete' | 'image_load'
+  | 'file_create' | 'file_delete' | 'file_time' | 'image_load'
   | 'network' | 'dns'
   | 'registry_set'
   | 'pipe_create' | 'pipe_connect'

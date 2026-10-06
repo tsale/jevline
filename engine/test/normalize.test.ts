@@ -161,3 +161,10 @@ test('links: last writer before a start, persistence to the next start only, no 
   const drop = links.find(l => l.type === 'dropped_and_ran' && name(l.to) === 'P1')!;
   assert.equal(drop.act, parseTime('2026-09-21T10:00:03Z'), 'the time of the write, not of the start');
 });
+
+test('Sysmon 2, a file\'s creation time changed (timestomping), is kept as file_time', () => {
+  const e = normalize([...readText(JSON.stringify({'@timestamp': '2026-09-21T17:21:27.008Z', host: {name: 'WS-01'}, event: {code: '2'},
+    winlog: {channel: 'Microsoft-Windows-Sysmon/Operational', event_data: {ProcessGuid: '{26BBF027-0000-6AB1-0001-000000005C00}', ProcessId: '8788',
+      Image: 'C:\\x\\2.8.exe', TargetFilename: 'C:\\x\\wlrmdr.exe'}}}))][0]!, 0, 0)!;
+  assert.deepEqual([e.kind, e.file_path], ['file_time', 'C:\\x\\wlrmdr.exe']);
+});

@@ -24,7 +24,7 @@ export const variable = (text: string): string =>
 export function sameDetail(kind: string, detail: string | undefined): string | undefined {
   if (detail === undefined) return undefined;
   if (kind === 'process_start') return variable(detail);
-  if ((kind === 'file_create' || kind === 'file_delete') && !EXECUTABLE.test(detail)) return variable(detail);
+  if ((kind === 'file_create' || kind === 'file_delete' || kind === 'file_time') && !EXECUTABLE.test(detail)) return variable(detail);
   if (kind === 'registry_set') { const at = detail.indexOf(' = '); return at < 0 ? variable(detail) : variable(detail.slice(0, at)) + detail.slice(at); }
   return detail;
 }

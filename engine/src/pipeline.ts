@@ -224,7 +224,7 @@ function detail(e: Event): string | undefined {
   switch (e.kind) {
     case 'process_start': return e.proc.cmd ?? e.proc.path;
     case 'inject': case 'process_access': return [e.target?.name ?? e.target?.path, e.access !== undefined ? `0x${e.access.toString(16)}` : undefined].filter(Boolean).join(' ');
-    case 'file_create': case 'file_delete': case 'image_load': return e.file_path;
+    case 'file_create': case 'file_delete': case 'file_time': case 'image_load': return e.file_path;
     case 'network': return `${e.src?.ip && !e.proc.pid && !e.proc.guid ? `${e.src.ip} → ` : ''}${[e.net?.domain ?? e.net?.ip, e.net?.port].filter(x => x !== undefined).join(':')}`;
     case 'dns': return e.net?.domain;
     case 'registry_set': return e.reg?.key && `${e.reg.key} = ${e.reg.value ?? ''}`;

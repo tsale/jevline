@@ -358,3 +358,4 @@ input[type="search"]:disabled, input[type="text"]:disabled { color: var(--text-3
 .page-nav button { flex: 0 0 auto; white-space: nowrap; }
 @media (max-width: 1100px) { .topbar-inner { gap: 20px; } .page-nav button { padding: 0 9px; } }
 .example-actions { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }
+.section-row td { padding: 12px 14px; background: var(--raised) !important; color: var(--text-2); font-size: 13px; font-weight: 600; letter-spacing: .02em; }
