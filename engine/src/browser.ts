@@ -182,7 +182,8 @@ export function relay(endpoint: string, key?: string, {timeoutMs = 90_000} = {})
   return async (body, signal) => {
     let response: Response;
     try {
-      response = await fetch(endpoint, {method: 'POST', body, credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
+      // Same-site cookies only (the relay is this site): a Vercel preview behind its login needs them.
+      response = await fetch(endpoint, {method: 'POST', body, credentials: 'same-origin', referrerPolicy: 'no-referrer', redirect: 'error',
         headers: {'Content-Type': 'application/json', ...(key ? {'Authorization': `Bearer ${key}`} : {})},
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)});
     } catch (error) {

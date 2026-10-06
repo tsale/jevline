@@ -544,7 +544,8 @@
   });
   $('preview').addEventListener('click', async () => {
     try {
-      const response = await fetch('examples/malicious_events.json', {credentials: 'omit', cache: 'no-store'});
+      // Same-site cookies only: a Vercel preview behind its login needs them; the site sets none of its own.
+      const response = await fetch('examples/malicious_events.json', {credentials: 'same-origin', cache: 'no-store'});
       if (!response.ok) throw new Error('the bundled example is not available on this site');
       load([new File([await response.blob()], 'malicious_events.json', {type: 'application/json'})], 'Bundled lab example: 100 Sysmon and Security records from CLA-WS-214', true);
     } catch (error) { setStatus(`Example load failed: ${error.message}`, true); }
