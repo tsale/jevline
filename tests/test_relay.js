@@ -152,5 +152,18 @@ async function engineRequests(file, seed, p) {
   clock += 10 * 60 * 1000;
   assert.equal((await call(limitedHandler, {body: requests[0]})).status, 200);
 
+  // The free key takes only the website's small requests, and caps all visitors together.
+  const big = structuredClone(requests[0]);
+  big.state.analyst_context = 'x'.repeat(400);
+  Object.values(big.state.candidates)[0].padding = 'y'.repeat(20 * 1024);
+  assert.equal((await call(createHandler({fetchImpl, env: {TYPESAFE_API_KEY: 'k'}}), {body: big})).status, 413, 'free key: 16 KiB per request');
+  assert.equal((await call(createHandler({fetchImpl, env: {TYPESAFE_API_KEY: 'k'}}), {body: big, headers: {authorization: 'Bearer mine'}})).status, 200, 'own key: larger requests');
+  const shared = createHandler({fetchImpl, env: {TYPESAFE_API_KEY: 'k'}, now: () => clock});
+  for (let i = 0; i < LIMITS.demoTotal; i++) await call(shared, {body: requests[i % requests.length], headers: {'x-real-ip': `203.0.${Math.floor(i / 250)}.${i % 250}`}});
+  r = await call(shared, {body: requests[0], headers: {'x-real-ip': '192.0.2.200'}});
+  assert.equal(r.status, 429);
+  assert.match(r.json.error, /free key is busy/);
+  assert.equal((await call(shared, {body: requests[0], headers: {'x-real-ip': '192.0.2.200', authorization: 'Bearer mine'}})).status, 200, 'own keys are not capped by it');
+
   report(`Relay passed: ${requests.length + others.length + schemaRequests.length} engine requests (the example, another incident, schema learning) allowed on the site's key; malformed requests refused; own keys forwarded unchanged, caching, limits, no logging.`);
 })().catch(error => { process.stderr.write(String(error.stack || error) + '\n'); process.exit(1); });

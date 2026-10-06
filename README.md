@@ -65,7 +65,7 @@ Tested this way: the same incident as Sysmon, Defender for Endpoint (five Advanc
 |---|---|---|
 | Start | Open **[jev-incident-timeline.vercel.app](https://jev-incident-timeline.vercel.app/)** | `node engine/src/cli.ts analyze …` (Node.js 22.18+, nothing to install) |
 | Where the analysis runs | In your browser, on your device | On your machine, on up to 8 cores |
-| Jev (TypeSafe) | **Our free key** on your logs (fair-use limit per visitor), or **your own key** | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
+| Jev (TypeSafe) | **Our free key** on up to 2 MB of your logs, or **your own key** with no limit | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
 | Narrative (optional) | Your OpenRouter key, typed into the page | |
 | Results | Incident, timeline, execution chain and evidence table; download the report and every Jev request | The incident table; `--out` writes the report and every Jev request |
 
@@ -80,7 +80,7 @@ The **Incident** tab lists every member: how it joined, Jev's probability, and a
 **How the website handles keys and data.**
 - **Your files** are read and linked in your browser and never uploaded. Only a short summary of each candidate Jev is asked about leaves it.
 - **Jev requests** go through a small relay on the same site, [`api/jev.js`](api/jev.js), which forwards each one to TypeSafe unchanged. Browsers can't call TypeSafe directly.
-- **Our free key:** our TypeSafe key, stored as a server secret, works on your own logs, within a fair-use limit per visitor. The relay forwards only requests shaped as the engine builds them.
+- **Our free key:** our TypeSafe key, stored as a server secret, works on your own logs, up to 2 MB per analysis and within a per-visitor limit. The relay forwards only requests shaped as the engine builds them.
 - **Your own key** travels with each request through the relay to TypeSafe and is never stored or logged.
 - **OpenRouter:** your key goes straight from your browser to `openrouter.ai`, never through us.
 

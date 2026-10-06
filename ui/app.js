@@ -9,7 +9,11 @@
   const JEV_ENDPOINT = document.body?.dataset?.jevEndpoint || 'api/jev';
   const KEY_STORE = 'jevline.keys', MODEL_STORE = 'jevline.model', NOTE_STORE = 'jevline.privacyDismissed', SCHEMA_STORE = 'jevline.schemas';
   const EXAMPLE_CONTEXT = 'Analyst-confirmed 2.8.exe execution on CLA-WS-214.';
-  const MAX_ROWS = 3000;  // Rows drawn per tab; the downloaded report always has every row.
+  const MAX_ROWS = 3000;
+  // Our free key pays for every Jev request, so it analyzes up to 2 MB of logs; a visitor's own key has no limit.
+  const FREE_MAX_BYTES = 2 * 1024 * 1024;
+  const tooBigForFreeKey = bytes => state.jevMode === 'demo' && bytes > FREE_MAX_BYTES;
+  const FREE_LIMIT_MESSAGE = 'Our free key analyzes up to 2 MB of logs. Choose "My own TypeSafe key" for larger files, or load a smaller export.';  // Rows drawn per tab; the downloaded report always has every row.
   const state = {worker: null, generation: 0, busy: false, summary: null, seeds: [], report: null, requests: null, exampleLoaded: false,
     keys: {jev: '', openrouter: ''}, jevMode: 'demo', drafts: new Map(), chain: '', draftModel: '', chainJevView: false, chainMarkdown: ''};
 
@@ -141,6 +145,9 @@
   }
   function load(files, label, example = false) {
     if (!files.length) return;
+    const bytes = files.reduce((sum, f) => sum + f.size, 0);
+    if (tooBigForFreeKey(bytes)) { setStatus(`${(bytes / 1048576).toFixed(1)} MB selected; nothing was loaded. ${FREE_LIMIT_MESSAGE}`, true); return; }
+    state.loadedBytes = bytes;
     state.generation++;
     state.worker?.terminate();
     state.worker = null;
@@ -214,6 +221,7 @@
     if (!state.summary || !seed) { setStatus('Load logs and choose the starting point first.', true); return; }
     if (!context) { setStatus('Add a sentence of analyst context: why the starting point is confirmed malicious.', true); return; }
     if (state.jevMode === 'own' && !state.keys.jev) { setStatus('Enter your TypeSafe API key first; nothing was sent.', true); return; }
+    if (tooBigForFreeKey(state.loadedBytes || 0)) { setStatus(`${FREE_LIMIT_MESSAGE} Nothing was sent.`, true); return; }
     resetResults();
     state.busy = true;
     renderButtons();

@@ -10,10 +10,13 @@ const crypto = require('node:crypto');
 const API = 'https://api.typesafe.ai/v1/systemone';
 const MODEL = 'jev-1.13.0';  // engine/src/jev.ts MODEL (tests/test_relay.js checks they match)
 const MAX_BODY = 256 * 1024;
+// The site's free key pays for every request, so it takes only what the website sends: one candidate per
+// request (the engine's requests are under 9 KB), from at most 2 MB of uploaded logs (ui/app.js).
+const FREE_MAX_BODY = 16 * 1024;
 const WINDOW_MS = 10 * 60 * 1000;
-// Requests per visitor address per window, per running instance. One investigation is a few hundred to
-// about a thousand requests (CLA-WS-214: 337-1,123), so the site's key allows about two per window.
-const LIMITS = {demo: 2500, own: 5000};
+// Requests per window, per running instance: per visitor address (2 MB of logs takes a few hundred), and
+// for the free key across all visitors, which caps what it can cost however many addresses send.
+const LIMITS = {demo: 600, own: 5000, demoTotal: 3000};
 const CACHE_SIZE = 2000;
 const TIMEOUT_MS = 60000;
 const MAX_QUESTIONS = 60;
@@ -35,14 +38,14 @@ function requestProblem(body) {
   return null;
 }
 
-async function readJson(req) {
+async function readJson(req, max = MAX_BODY) {
   let body;
   try { body = req.body; } catch { return {problem: [400, 'Invalid JSON.']}; }  // Vercel parses lazily and throws on bad JSON.
   let text;
   if (body !== undefined && body !== null && typeof body.pipe !== 'function') {
     if (isObj(body) || Array.isArray(body)) {
       text = JSON.stringify(body);
-      return Buffer.byteLength(text) > MAX_BODY ? {problem: [413, 'Request too large.']} : {body};
+      return Buffer.byteLength(text) > max ? {problem: [413, 'Request too large.']} : {body};
     }
     text = Buffer.isBuffer(body) ? body.toString('utf8') : String(body);
   } else {
@@ -50,12 +53,12 @@ async function readJson(req) {
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > MAX_BODY) return {problem: [413, 'Request too large.']};
+      if (size > max) return {problem: [413, 'Request too large.']};
       chunks.push(chunk);
     }
     text = Buffer.concat(chunks).toString('utf8');
   }
-  if (Buffer.byteLength(text) > MAX_BODY) return {problem: [413, 'Request too large.']};
+  if (Buffer.byteLength(text) > max) return {problem: [413, 'Request too large.']};
   try { return {body: JSON.parse(text)}; } catch { return {problem: [400, 'Invalid JSON.']}; }
 }
 
@@ -90,11 +93,14 @@ function createHandler({fetchImpl = (...args) => fetch(...args), env = process.e
     const auth = req.headers.authorization;
     const own = typeof auth === 'string' && auth !== '';
     if (own && !/^Bearer [\x21-\x7e]{1,512}$/.test(auth)) return refuse(400, 'Malformed TypeSafe key.');
-    const {body, problem} = await readJson(req);
+    const {body, problem} = await readJson(req, own ? MAX_BODY : FREE_MAX_BODY);
     if (problem) return refuse(...problem);
     const reason = requestProblem(body);
     if (reason) return refuse(400, reason);
     const address = String(req.headers['x-real-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket?.remoteAddress || 'unknown').trim();
+    if (!own && limited('demo:*', LIMITS.demoTotal)) {
+      return refuse(429, 'The free key is busy right now; wait a few minutes or use your own TypeSafe key.');
+    }
     if (limited(`${own ? 'own' : 'demo'}:${address}`, own ? LIMITS.own : LIMITS.demo)) {
       return refuse(429, own ? 'Too many Jev requests from your connection; wait a few minutes and retry.'
         : 'You have reached this site\'s fair-use limit for the free key; wait a few minutes or use your own TypeSafe key.');
