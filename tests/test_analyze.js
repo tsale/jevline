@@ -72,7 +72,11 @@ function call(handler, body, headers = {}) {
   r = await call(handler, {files, seed: 'name:nothing.exe', context: 'x'});
   assert.equal(r.status, 400);
   assert.match(r.json.error, /no process start named/);
-  assert.equal((await call(createHandler({env: {}}), {files})).status, 503, 'no key configured');
+  const unconfigured = createHandler({env: {}});
+  assert.equal((await call(unconfigured, {files})).status, 200, 'no key: logs still load');
+  r = await call(unconfigured, {files, seed: 'name:2.8.exe', context: 'x'});
+  assert.equal(r.status, 503, 'no key: analysis says so');
+  assert.match(r.json.error, /not configured/);
 
   // Limits per visitor and for everyone, reset after an hour.
   let clock = 0;

@@ -86,12 +86,13 @@ function createHandler({transport = null, env = process.env, now = Date.now} = {
       return refuse(429, `You have reached the free key's limit of ${analyzing ? LIMITS.analyze : LIMITS.load} ${analyzing ? 'analyses' : 'loads'} per hour; try later, or use your own TypeSafe key.`);
     }
     const key = env.TYPESAFE_API_KEY;
-    if (!transport && !key) return refuse(503, 'The free key is not configured on this site yet. Choose "My own TypeSafe key" to analyze now.');
+    const NOT_CONFIGURED = 'The free key is not configured on this site yet. Choose "My own TypeSafe key" to analyze now.';
 
     try {
       const {browser, jev, schema} = await loadEngine();
       let asked = 0;
-      const base = transport || jev.typesafe(key);
+      // Without a key, logs the built-in rules read still load; only asking Jev fails.
+      const base = transport || (key ? jev.typesafe(key) : async () => { throw new jev.TransportError(NOT_CONFIGURED, false); });
       const capped = async (requestBody, signal) => {
         if (++asked > MAX_JEV_REQUESTS) throw new jev.TransportError(`This analysis needs more than ${MAX_JEV_REQUESTS} Jev questions, more than the free key allows. Use your own TypeSafe key.`, false);
         return base(requestBody, signal);
@@ -117,7 +118,7 @@ function createHandler({transport = null, env = process.env, now = Date.now} = {
       return send(200, {report, requests: bytes(requestLog) <= MAX_REQUEST_LOG ? requests : null, mappings: learned});
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return refuse(/more than the free key allows/.test(message) ? 413 : 502, message.slice(0, 300));
+      return refuse(/more than the free key allows/.test(message) ? 413 : message === NOT_CONFIGURED ? 503 : 502, message.slice(0, 300));
     }
   };
 }
