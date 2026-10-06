@@ -215,7 +215,7 @@
       const first = state.seeds.find(s => s.name.toLowerCase() === '2.8.exe');
       if (first) $('seed').value = `key:${first.key}`;
     }
-    setStatus(state.seeds.length ? `Loaded; nothing was sent. Choose the starting point${state.exampleLoaded ? ' (2.8.exe is selected)' : ''} and analyze.`
+    setStatus(state.seeds.length ? `${onServer() ? 'Read on our server; nothing was kept' : 'Loaded in this browser; nothing was sent'}. Choose the starting point${state.exampleLoaded ? ' (2.8.exe is selected)' : ''} and analyze.`
       : 'Loaded; no process starts found. Use "Or another starting point" (ip:, domain:, user: or host:).');
     renderButtons();
   }
