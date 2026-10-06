@@ -17,9 +17,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22.x'
-      - name: Relay, page and published engine
+      - name: Relay, server analysis, page and published engine
         run: |
           node tests/test_relay.js
+          node tests/test_analyze.js
           node tests/test_build_site.js
           node ui/test_site.js
       - name: Website build

@@ -7,6 +7,10 @@
   const View = globalThis.JevView;
   const PAGES = ['setup', 'incident', 'events', 'chain', 'table'];
   const JEV_ENDPOINT = document.body?.dataset?.jevEndpoint || 'api/jev';
+  // With our free key the logs are analyzed on this site's server (api/analyze.js); with the visitor's own
+  // TypeSafe key, in this browser (engine/web-worker.js), with each Jev request through the relay.
+  const ANALYZE_ENDPOINT = document.body?.dataset?.analyzeEndpoint || 'api/analyze';
+  const onServer = () => state.jevMode === 'demo';
   const KEY_STORE = 'jevline.keys', MODEL_STORE = 'jevline.model', NOTE_STORE = 'jevline.privacyDismissed', SCHEMA_STORE = 'jevline.schemas';
   const EXAMPLE_CONTEXT = 'Analyst-confirmed 2.8.exe execution on CLA-WS-214.';
   const MAX_ROWS = 3000;
@@ -61,7 +65,12 @@
     state.jevMode = state.keys.jev ? 'own' : 'demo';
     $('mode-demo').checked = state.jevMode === 'demo';
     $('mode-own').checked = state.jevMode === 'own';
-    for (const id of ['mode-demo', 'mode-own']) $(id).addEventListener('change', () => { state.jevMode = $('mode-own').checked ? 'own' : 'demo'; renderKeys(); });
+    for (const id of ['mode-demo', 'mode-own']) $(id).addEventListener('change', () => {
+      state.jevMode = $('mode-own').checked ? 'own' : 'demo';
+      renderKeys();
+      // The free key analyzes on the server, the visitor's key in this browser: load the same files there.
+      if (state.files?.length && !state.busy) load(state.files, state.label, state.exampleLoaded);
+    });
     $('jev-key').value = state.keys.jev;
     $('openrouter-key').value = state.keys.openrouter;
     for (const [id, name] of [['jev-key', 'jev'], ['openrouter-key', 'openrouter']]) {
@@ -148,6 +157,7 @@
     const bytes = files.reduce((sum, f) => sum + f.size, 0);
     if (tooBigForFreeKey(bytes)) { setStatus(`${(bytes / 1048576).toFixed(1)} MB selected; nothing was loaded. ${FREE_LIMIT_MESSAGE}`, true); return; }
     state.loadedBytes = bytes;
+    state.files = files; state.label = label;
     state.generation++;
     state.worker?.terminate();
     state.worker = null;
@@ -159,9 +169,26 @@
     $('source').textContent = label;
     const context = $('description').value.trim();
     if (example && (!context || context === EXAMPLE_CONTEXT)) $('description').value = EXAMPLE_CONTEXT;
+    renderButtons();
+    if (onServer()) {
+      setStatus(`Sending ${plural(files.length, 'file')} (${mb(bytes)}) to our server to read; nothing is kept…`);
+      const generation = state.generation;
+      server({files: null, mappings: savedMappings()}, files)
+        .then(result => { if (generation !== state.generation) return; (result.mappings || []).forEach(saveMapping); loaded(result.summary, result.seeds); })
+        .catch(error => { if (generation === state.generation) fail(`Reading failed: ${error.message}`, 'load'); });
+      return;
+    }
     setStatus(`Reading ${plural(files.length, 'file')} in this browser…`);
     engine().postMessage({type: 'load', files, access: access(), mappings: savedMappings()});
-    renderButtons();
+  }
+  /** A request to the site's server analysis (our free key), with the files' text. */
+  async function server(body, files) {
+    const texts = await Promise.all(files.map(async f => ({name: f.name, text: await f.text()})));
+    const response = await fetch(ANALYZE_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json'}, credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({...body, files: texts})});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error.slice(0, 300) : `the server returned HTTP ${response.status}`);
+    return result;
   }
   function loaded(summary, seeds) {
     state.busy = false;
@@ -212,7 +239,8 @@
     const ready = !!state.summary && !state.busy;
     $('analyze').disabled = !ready || !chosenSeed();
     $('narrate').disabled = state.busy || !state.report || !state.keys.openrouter;
-    $('download').hidden = $('download-requests').hidden = !state.report;
+    $('download').hidden = !state.report;
+    $('download-requests').hidden = !state.report || !state.requests;
   }
 
   // ---- Analyzing -----------------------------------------------------------------------------------
@@ -225,6 +253,14 @@
     resetResults();
     state.busy = true;
     renderButtons();
+    if (onServer()) {
+      setStatus('Analyzing on our server with Jev; this usually takes under a minute…');
+      const generation = state.generation;
+      server({seed, context, mappings: savedMappings()}, state.files)
+        .then(result => { if (generation === state.generation) finished(result.report, result.requests); })
+        .catch(error => { if (generation === state.generation) fail(`Analysis failed: ${error.message}`, 'analyze'); });
+      return;
+    }
     setStatus('Asking Jev from this browser, through this site\'s relay…');
     engine().postMessage({type: 'analyze', seed, context, access: access()});
   }

@@ -64,7 +64,7 @@ Tested this way: the same incident as Sysmon, Defender for Endpoint (five Advanc
 | | **Website** | **Command line** |
 |---|---|---|
 | Start | Open **[jev-incident-timeline.vercel.app](https://jev-incident-timeline.vercel.app/)** | `node engine/src/cli.ts analyze …` (Node.js 22.18+, nothing to install) |
-| Where the analysis runs | In your browser, on your device | On your machine, on up to 8 cores |
+| Where the analysis runs | Our free key: on our server, up to 2 MB, nothing kept. Your own key: in your browser, any size | On your machine, on up to 8 cores |
 | Jev (TypeSafe) | **Our free key** on up to 2 MB of your logs, or **your own key** with no limit | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
 | Narrative (optional) | Your OpenRouter key, typed into the page | |
 | Results | Incident, timeline, execution chain and evidence table; download the report and every Jev request | The incident table; `--out` writes the report and every Jev request |
@@ -78,10 +78,8 @@ Tested this way: the same incident as Sysmon, Defender for Endpoint (five Advanc
 The **Incident** tab lists every member: how it joined, Jev's probability, and a **review** marker within 0.05 of the 0.8 threshold. The **Event timeline**, **Execution chain** and **Evidence table** show what the incident did. The same activity repeated without change (a beacon, a brute force, a relaunch) is one row with a count, until when and how often. **Request narrative** optionally drafts titles, ATT&CK mapping and a written chain with an OpenRouter model, labelled as an AI draft.
 
 **How the website handles keys and data.**
-- **Your files** are read and linked in your browser and never uploaded. Only a short summary of each candidate Jev is asked about leaves it.
-- **Jev requests** go through a small relay on the same site, [`api/jev.js`](api/jev.js), which forwards each one to TypeSafe unchanged. Browsers can't call TypeSafe directly.
-- **Our free key:** our TypeSafe key, stored as a server secret, works on your own logs, up to 2 MB per analysis and within a per-visitor limit. The relay forwards only requests shaped as the engine builds them.
-- **Your own key** travels with each request through the relay to TypeSafe and is never stored or logged.
+- **With our free key,** the logs you load (up to 2 MB) are sent to our server, analyzed in memory and discarded when the result comes back. Nothing is stored, and their contents aren't logged. Our key only ever answers questions the server builds from those logs, so it can't be used for anything else.
+- **With your own TypeSafe key,** your files are read and linked in your browser and never uploaded, at any size. Only a short summary of each candidate goes through a small relay on the same site, [`api/jev.js`](api/jev.js), to TypeSafe (browsers can't call TypeSafe directly). The key travels with each request and is never stored or logged.
 - **OpenRouter:** your key goes straight from your browser to `openrouter.ai`, never through us.
 
 The page's security policy only allows connections to its own site and `openrouter.ai`, so you can check every request in your browser's developer tools.
@@ -119,8 +117,8 @@ Jev is asked about what the telemetry connects to the incident, not about every 
 
 | Action | What is sent | Where |
 |---|---|---|
-| Load logs | Nothing | |
-| **Analyze with Jev** | For each candidate, a summary: names, paths, command lines, PIDs, hashes and users of the starting point, the candidate and the incident members it links to; the links themselves; samples of what the candidate did. Your analyst context. | TypeSafe (on the website, through the site's relay) |
+| Load logs | With our free key: the files (up to 2 MB), processed in memory and not kept. With your own key: nothing | Our server |
+| **Analyze with Jev** | For each candidate, a summary: names, paths, command lines, PIDs, hashes and users of the starting point, the candidate and the incident members it links to; the links themselves; samples of what the candidate did. Your analyst context. | TypeSafe (from our server with our free key; through the site's relay with your own key) |
 | Logs from an unknown schema | Field names with a few example values per field, once per event type | TypeSafe |
 | **Request narrative** | At most 60 timeline rows of the incident | OpenRouter (directly) |
 
@@ -142,13 +140,14 @@ npm run preview                 # build the site and serve it with the relay at 
 
 The engine needs `npm ci` in `engine/` once, for type checking only (`npm --prefix engine run typecheck`). The website is `site/index.html`, `ui/` and the engine's browser modules, built into `_site/` by `node scripts/build_site.js`, plus the relay function in `api/`. `vercel.json` sets the build and the security headers.
 
-To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`). Then add the site's free key as a secret with `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. The relay rate-limits each visitor and caches repeated demo requests, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/jev` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
+To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`). Then add the site's free key as a secret with `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. The server analysis limits each visitor and all visitors together, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/analyze` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
 
 | Path | Contents |
 |---|---|
 | `engine/` | The engine: TypeScript, no runtime dependencies; command line, tests and benchmarks ([README](engine/README.md)) |
 | `site/index.html`, `ui/` | The website page and its scripts and styles |
-| `api/jev.js`, `api/_relay.js` | The website's Jev relay (Vercel function) |
+| `api/analyze.js`, `api/_analyze.js` | Server analysis with our free key: up to 2 MB of uploaded logs, nothing kept (Vercel function) |
+| `api/jev.js`, `api/_relay.js` | The Jev relay for visitors' own TypeSafe keys (Vercel function) |
 | `scripts/` | Website build and local preview |
 | `examples/` | The bundled lab example: 100 Sysmon and Security records from the detonation of `2.8.exe` on CLA-WS-214 |
 | `docs/` | README illustration |

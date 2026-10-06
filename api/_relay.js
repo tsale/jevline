@@ -1,23 +1,15 @@
-// Jev relay for the website: browsers cannot call TypeSafe directly (no CORS), so the page sends each
-// Jev request here and this function forwards it unchanged. It stores and logs nothing.
-//
-// - With an Authorization header, the visitor's own TypeSafe key is forwarded for that one request.
-// - Without one, the site's key (TYPESAFE_API_KEY) is used, for any logs, within a per-visitor limit.
-// Either way the body must be a Jev request in the engine's shape.
+// Jev relay for the website, for visitors who use their own TypeSafe key: browsers cannot call TypeSafe
+// directly (no CORS), so the page sends each Jev request here with the visitor's key, and this function
+// forwards it unchanged for that one request. It stores and logs nothing. The site's own free key is never
+// used here; it only answers questions the server builds from uploaded logs (api/analyze.js).
 'use strict';
-const crypto = require('node:crypto');
 
 const API = 'https://api.typesafe.ai/v1/systemone';
 const MODEL = 'jev-1.13.0';  // engine/src/jev.ts MODEL (tests/test_relay.js checks they match)
 const MAX_BODY = 256 * 1024;
-// The site's free key pays for every request, so it takes only what the website sends: one candidate per
-// request (the engine's requests are under 9 KB), from at most 2 MB of uploaded logs (ui/app.js).
-const FREE_MAX_BODY = 16 * 1024;
 const WINDOW_MS = 10 * 60 * 1000;
-// Requests per window, per running instance: per visitor address (2 MB of logs takes a few hundred), and
-// for the free key across all visitors, which caps what it can cost however many addresses send.
-const LIMITS = {demo: 600, own: 5000, demoTotal: 3000};
-const CACHE_SIZE = 2000;
+// Requests per visitor address per window, per running instance.
+const LIMITS = {own: 5000};
 const TIMEOUT_MS = 60000;
 const MAX_QUESTIONS = 60;
 const MAX_CONTEXT = 500;
@@ -62,9 +54,8 @@ async function readJson(req, max = MAX_BODY) {
   try { return {body: JSON.parse(text)}; } catch { return {problem: [400, 'Invalid JSON.']}; }
 }
 
-function createHandler({fetchImpl = (...args) => fetch(...args), env = process.env, now = Date.now} = {}) {
-  const hits = new Map();   // "mode:address" -> request times within the window
-  const cache = new Map();  // SHA-256 of a demo request -> TypeSafe's answer (identical inputs, identical answer)
+function createHandler({fetchImpl = (...args) => fetch(...args), now = Date.now} = {}) {
+  const hits = new Map();   // address -> request times within the window
 
   const limited = (bucket, limit) => {
     const t = now();
@@ -91,25 +82,16 @@ function createHandler({fetchImpl = (...args) => fetch(...args), env = process.e
     if (!host || ![`https://${host}`, `http://${host}`].includes(req.headers.origin)) return refuse(403, 'Requests must come from this site.');
     if (String(req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return refuse(415, 'JSON required.');
     const auth = req.headers.authorization;
-    const own = typeof auth === 'string' && auth !== '';
-    if (own && !/^Bearer [\x21-\x7e]{1,512}$/.test(auth)) return refuse(400, 'Malformed TypeSafe key.');
-    const {body, problem} = await readJson(req, own ? MAX_BODY : FREE_MAX_BODY);
+    if (typeof auth !== 'string' || auth === '') return refuse(401, 'This relay forwards your own TypeSafe key. With the free key, the site analyzes uploaded logs on its server instead.');
+    if (!/^Bearer [\x21-\x7e]{1,512}$/.test(auth)) return refuse(400, 'Malformed TypeSafe key.');
+    const {body, problem} = await readJson(req, MAX_BODY);
     if (problem) return refuse(...problem);
     const reason = requestProblem(body);
     if (reason) return refuse(400, reason);
     const address = String(req.headers['x-real-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket?.remoteAddress || 'unknown').trim();
-    if (!own && limited('demo:*', LIMITS.demoTotal)) {
-      return refuse(429, 'The free key is busy right now; wait a few minutes or use your own TypeSafe key.');
-    }
-    if (limited(`${own ? 'own' : 'demo'}:${address}`, own ? LIMITS.own : LIMITS.demo)) {
-      return refuse(429, own ? 'Too many Jev requests from your connection; wait a few minutes and retry.'
-        : 'You have reached this site\'s fair-use limit for the free key; wait a few minutes or use your own TypeSafe key.');
-    }
+    if (limited(address, LIMITS.own)) return refuse(429, 'Too many Jev requests from your connection; wait a few minutes and retry.');
     const payload = JSON.stringify(body);
-    const cacheKey = own ? null : crypto.createHash('sha256').update(payload).digest('hex');
-    if (cacheKey && cache.has(cacheKey)) return send(200, cache.get(cacheKey));
-    const key = own ? auth.slice('Bearer '.length) : env.TYPESAFE_API_KEY;
-    if (!key) return refuse(503, 'The free key is not configured on this site yet. Choose "My own TypeSafe key" to analyze now.');
+    const key = auth.slice('Bearer '.length);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -125,14 +107,8 @@ function createHandler({fetchImpl = (...args) => fetch(...args), env = process.e
     } finally {
       clearTimeout(timer);
     }
-    if (!own && (status === 401 || status === 403)) return refuse(503, 'TypeSafe rejected the site\'s key; the site owner needs to renew it. Use your own TypeSafe key meanwhile.');
-    if (!own && status === 429) return refuse(429, 'The site\'s key has reached TypeSafe\'s rate limit; try later or use your own TypeSafe key.');
-    if (cacheKey && status === 200) {
-      cache.set(cacheKey, text);
-      if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value);
-    }
     return send(status, text);
   };
 }
 
-module.exports = {createHandler, requestProblem, LIMITS, MODEL};
+module.exports = {createHandler, requestProblem, readJson, LIMITS, MODEL};

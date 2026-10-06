@@ -1,8 +1,9 @@
-// The website's engine thread: a Web Worker that reads the visitor's log files, learns unknown schemas,
-// links the incident and asks Jev round by round, so the page stays responsive on large files. The page
+// The website's engine thread, used with the visitor's own TypeSafe key: a Web Worker that reads the
+// visitor's log files, learns unknown schemas, links the incident and asks Jev round by round, so the page
+// stays responsive on large files. (With the site's free key, api/analyze.js does the same on the server.) The page
 // (ui/app.js) sends {type: 'load' | 'analyze'} messages and receives progress, the loaded summary and the
 // report. Nothing here stores anything: files, answers and keys live only as long as the page.
-import {analyze, findSeed, iso, loadFiles, relay, type Loaded} from './browser.ts';
+import {analyze, findSeed, loadFiles, relay, seeds, summary, type Loaded} from './browser.ts';
 import {JevClient, MODEL, type JevResponse} from './jev.ts';
 import {learn, SchemaCache, type StoredMapping} from './schema.ts';
 
@@ -19,23 +20,6 @@ let received = 0;  // Jev answers received in this session, for the page to say 
 // threshold, reuses every answer already received instead of paying for it again.
 const answers = new Map<string, JevResponse>();
 const memory = {load: () => answers.entries(), save: (sha: string, response: JevResponse) => { answers.set(sha, response); }};
-
-/** Process starts a visitor can pick as the seed, in time order. */
-function seeds(data: Loaded) {
-  return [...data.nodes.values()].filter(n => n.type === 'process' && n.starts.length)
-    .sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity) || a.key.localeCompare(b.key))
-    .map(n => ({key: n.key, name: n.name ?? '?', pid: n.pid, host: n.host, start: iso(n.start), user: n.user,
-      command_line: n.cmd && n.cmd.length > 300 ? `${n.cmd.slice(0, 300)}…` : n.cmd, event_id: data.events[n.starts[0]!]!.id}));
-}
-
-function summary(data: Loaded) {
-  const processes = [...data.nodes.values()].filter(n => n.type === 'process').length;
-  const entities: Record<string, number> = {};
-  for (const n of data.nodes.values()) if (n.type !== 'process') entities[n.type] = (entities[n.type] ?? 0) + 1;
-  return {inputs: data.inputs, records: data.stats.records, events: data.events.length, duplicates: data.duplicates, processes, entities,
-    links: data.graph.links.length, schemas: data.schemas, timings: data.timings,
-    sources: [...data.stats.bySource].sort((a, b) => b[1] - a[1]).slice(0, 8)};
-}
 
 async function handle(message: Message) {
   if (message.type === 'load') {

@@ -73,6 +73,15 @@ function starCountHtml(repoUrl, count) {
  */
 function engineModules(entry = ENGINE_ENTRY) {
   if (typeof stripTypeScriptTypes !== 'function') throw new Error(`Node.js ${process.version} cannot strip TypeScript types; use Node.js 22.18 or newer`);
+  // Node marks type stripping experimental and says so on stderr; that one notice is expected here.
+  const emitWarning = process.emitWarning;
+  process.emitWarning = (warning, ...rest) => {
+    if (!/stripTypeScriptTypes/.test(String(warning))) emitWarning.call(process, warning, ...rest);
+  };
+  try { return collectModules(entry); } finally { process.emitWarning = emitWarning; }
+}
+
+function collectModules(entry) {
   const modules = new Map(), queue = [entry];
   while (queue.length) {
     const file = queue.pop();

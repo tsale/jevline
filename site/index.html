@@ -12,7 +12,7 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body data-mode="browser" data-jev-endpoint="api/jev">
+<body data-mode="browser" data-jev-endpoint="api/jev" data-analyze-endpoint="api/analyze">
   <div class="shell">
     <header class="topbar">
       <div class="topbar-inner">
@@ -40,8 +40,8 @@
           <div class="privacy-body">
             <h2 id="privacy-title">What reaches us, and what doesn't</h2>
             <ul class="privacy-points">
-              <li><strong>Your files stay in your browser.</strong> They are read and linked here, on your device. Only a short summary of each candidate Jev is asked about is sent, through this site's relay to TypeSafe. Browsers can't call TypeSafe directly, so the relay forwards each request as-is and keeps nothing.</li>
-              <li><strong>Our key or yours.</strong> Our TypeSafe key is free to use on your own logs, within a fair-use limit per visitor. Your own key is passed along with each request and never stored or logged.</li>
+              <li><strong>Nothing is kept.</strong> With our free key, your logs (up to 2 MB) are sent to our server, analyzed in memory and discarded when the result is back: not stored, not logged. With your own TypeSafe key, they never leave your browser.</li>
+              <li><strong>Our key or yours.</strong> Our TypeSafe key is free and only ever answers questions our server builds from your uploaded logs. Your own key is passed along with each request from your browser and never stored or logged.</li>
               <li><strong>OpenRouter goes direct.</strong> Your OpenRouter key goes straight from this browser to <code>openrouter.ai</code>. The page can't connect anywhere else; <a href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer">read the code</a>.</li>
             </ul>
           </div>
@@ -95,8 +95,8 @@
                 <h3 id="keys-title">Jev access and API keys</h3>
                 <fieldset class="jev-mode">
                   <legend class="sr-only">Jev access</legend>
-                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Our free key</strong><span class="field-hint">Analyze your own logs, up to 2 MB per analysis.</span></span></label>
-                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">No limit from us; billed to your TypeSafe account.</span></span></label>
+                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Our free key</strong><span class="field-hint">Up to 2 MB of logs, analyzed on our server and not kept.</span></span></label>
+                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">No size limit; runs in your browser, billed to your TypeSafe account.</span></span></label>
                 </fieldset>
                 <label id="jev-key-field" for="jev-key" hidden>TypeSafe (Jev) API key
                   <span class="field-hint">Sent with each request through the relay, never stored. <a href="https://docs.typesafe.ai/introduction/quickstart" target="_blank" rel="noopener noreferrer">Get a key</a></span>
@@ -115,7 +115,7 @@
                 <div class="key-row"><span id="key-status" class="small" role="status"></span><button id="forget-keys" class="button subtle" type="button">Forget keys</button></div>
               </div>
             </section>
-            <p class="trust-note">Reading and linking stay in this browser. Analyze sends a summary of the starting point, each candidate and its links through this site's relay to TypeSafe; a narrative is a separate opt-in sent directly to OpenRouter. Jev scores are relatedness, not maliciousness.</p>
+            <p class="trust-note">With our free key, the logs you load (up to 2 MB) are analyzed on our server and discarded afterwards. With your own TypeSafe key, reading and linking stay in this browser and only a summary of each candidate goes through this site's relay to TypeSafe. A narrative is a separate opt-in sent directly to OpenRouter. Jev scores are relatedness, not maliciousness.</p>
           </div>
         </div>
 

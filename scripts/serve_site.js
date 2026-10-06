@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Local preview of the website as Vercel serves it: _site/ plus the Jev relay at /api/jev, with the
-// response headers from vercel.json. The demo key comes from TYPESAFE_API_KEY in the environment or
-// .env; "My own TypeSafe key" needs neither.
+// Local preview of the website as Vercel serves it: _site/ plus the Jev relay at /api/jev and the server
+// analysis at /api/analyze, with the response headers from vercel.json. The free key comes from
+// TYPESAFE_API_KEY in the environment or .env; "My own TypeSafe key" needs neither.
 //
 //   node scripts/build_site.js && node scripts/serve_site.js [--port 8000]
 'use strict';
@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const {createHandler} = require('../api/_relay.js');
+const analysis = require('../api/_analyze.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const SITE = path.join(ROOT, '_site');
@@ -26,12 +27,14 @@ function envFileKey() {
 const portIndex = process.argv.indexOf('--port');
 const port = portIndex >= 0 ? Number(process.argv[portIndex + 1]) : 8000;
 if (!fs.existsSync(path.join(SITE, 'index.html'))) { process.stderr.write('Run node scripts/build_site.js first.\n'); process.exit(1); }
-const relay = createHandler({env: {TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY || envFileKey()}});
+const relay = createHandler();
+const analyze = analysis.createHandler({env: {TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY || envFileKey()}});
 
 http.createServer((req, res) => {
   for (const {key, value} of headers) res.setHeader(key, value);
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/api/jev') return relay(req, res);
+  if (url.pathname === '/api/analyze') return analyze(req, res);
   let file;
   try { file = path.normalize(path.join(SITE, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname))); } catch { file = ''; }
   if (!file.startsWith(SITE + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.statusCode = 404; return res.end('Not found'); }

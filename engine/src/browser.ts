@@ -6,7 +6,7 @@ import {csvHeader, detectFormat, OpenQuoteError, readLines, textLines, type Form
 import {newStats, normalize, type NormalizeStats} from './normalize.ts';
 import {applyMapping, flatten, groupKey, KEEP_UNKNOWN, mergeProfiles, observe, type Mapping, type Profiles} from './schema.ts';
 import {TransportError, type JevResponse, type Transport} from './jev.ts';
-import {assemble, schemaSummaries, type Learner, type Loaded, type SchemaSummary} from './pipeline.ts';
+import {assemble, iso, schemaSummaries, type Learner, type Loaded, type SchemaSummary} from './pipeline.ts';
 
 export * from './pipeline.ts';
 
@@ -204,3 +204,21 @@ export function relay(endpoint: string, key?: string, {timeoutMs = 90_000} = {})
     return data as JevResponse;
   };
 }
+
+/** Process starts a visitor can pick as the seed, in time order (for the website's seed list). */
+export function seeds(data: Loaded) {
+  return [...data.nodes.values()].filter(n => n.type === 'process' && n.starts.length)
+    .sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity) || a.key.localeCompare(b.key))
+    .map(n => ({key: n.key, name: n.name ?? '?', pid: n.pid, host: n.host, start: iso(n.start), user: n.user,
+      command_line: n.cmd && n.cmd.length > 300 ? `${n.cmd.slice(0, 300)}…` : n.cmd, event_id: data.events[n.starts[0]!]!.id}));
+}
+
+export function summary(data: Loaded) {
+  const processes = [...data.nodes.values()].filter(n => n.type === 'process').length;
+  const entities: Record<string, number> = {};
+  for (const n of data.nodes.values()) if (n.type !== 'process') entities[n.type] = (entities[n.type] ?? 0) + 1;
+  return {inputs: data.inputs, records: data.stats.records, events: data.events.length, duplicates: data.duplicates, processes, entities,
+    links: data.graph.links.length, schemas: data.schemas, timings: data.timings,
+    sources: [...data.stats.bySource].sort((a, b) => b[1] - a[1]).slice(0, 8)};
+}
+
