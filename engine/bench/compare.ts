@@ -4,7 +4,10 @@
 //
 //   set -a; . ../.env; set +a      # TYPESAFE_API_KEY and OPENROUTER_API_KEY
 //   node bench/compare.ts <log files...> --seed name:2.8.exe --context "..." --truth truth.json \
-//     --methods jev,jev,jev-replay,llm-judge,llm-alone --llm z-ai/glm-5.3-flash --out results
+//     --methods jev,jev,jev-replay,enrich,llm-judge,llm-alone --llm z-ai/glm-5.3-flash --out results
+//
+// enrich: the LLM enriches the latest Jev result as the website's "Request narrative" does (titles,
+// summaries, ATT&CK mapping, a written chain). Membership, and so the score, stays Jev's.
 //
 // A method written as <method>@<report.json> reuses the report.json of an earlier run of that method
 // (its timing, requests and tokens are as recorded then), so a later failure does not mean paying again.
@@ -14,6 +17,7 @@
 // (addresses, domains and accounts in the incident are not in the ground truth); results after `until`
 // are listed but not scored. Live calls spend credit and send the telemetry to the providers.
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 import {analyze, findSeed, iso, load, unfold, type Loaded, type ProcessRow} from '../src/analyze.ts';
@@ -104,6 +108,9 @@ function llmJudge(spend: {cost: number}): Transport {
 }
 
 // ---- Methods ---------------------------------------------------------------------------------
+/** The latest Jev result and its report, for enrich. */
+let lastJev: {result: Result; report: unknown} | null = null;
+
 async function engineRun(method: string, transport: Transport, model: string, cacheFile?: string, spend?: {cost: number}): Promise<Result> {
   const client = new JevClient(transport, {concurrency, ...(cacheFile ? {answers: answerFile(cacheFile)} : {})});
   const started = performance.now();
@@ -111,27 +118,48 @@ async function engineRun(method: string, transport: Transport, model: string, ca
     maxRounds: 20, maxCandidatesPerRound: 2000, transport: method});
   const ms = performance.now() - started;
   writeFileSync(join(values.out!, `${method}-${results.length + 1}-report.json`), JSON.stringify(report, null, 1), {mode: 0o600});
+  const keep = (result: Result) => { if (method.startsWith('jev')) lastJev = {result, report}; return result; };
   const calls = client.calls.filter(c => !c.cached);
   const latencies = calls.map(c => c.ms).sort((a, b) => a - b), at = (q: number) => latencies[Math.min(latencies.length - 1, Math.floor(q * latencies.length))] ?? 0;
   const retried = calls.filter(c => c.attempts > 1).length;
   const timing = calls.length ? `per request: median ${(at(0.5) / 1000).toFixed(2)} s, 95th percentile ${(at(0.95) / 1000).toFixed(2)} s, slowest ${(at(1) / 1000).toFixed(1)} s` +
     (retried ? `; ${retried} requests needed retries` : '') : '';
-  return {method, model, ms, prepMs, requests: calls.length, inputTokens: calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0),
+  return keep({method, model, ms, prepMs, requests: calls.length, inputTokens: calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0),
     outputTokens: calls.reduce((s, c) => s + (c.output_tokens ?? 0), 0),
     cost: spend ? spend.cost : calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0) * JEV_PER_INPUT_TOKEN,
     found: unfold(report.incident).filter(p => p.key !== seedKey && p.type === 'process').map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
-    note: [report.jev.answered_from_cache ? `${report.jev.answered_from_cache} answers from the cache` : '', timing].filter(Boolean).join('; ')};
+    note: [report.jev.answered_from_cache ? `${report.jev.answered_from_cache} answers from the cache` : '', timing].filter(Boolean).join('; ')});
 }
 
 /** An earlier engine run, from its report.json. */
 function fromReport(method: string, path: string): Result {
   const report = JSON.parse(readFileSync(path, 'utf8')) as {timings_ms: {investigate: number}; jev: {model: string; requests: number;
     answered_from_cache: number; input_tokens: number; output_tokens: number}; incident: ProcessRow[]};
-  return {method, model: report.jev.model, ms: report.timings_ms.investigate, prepMs, requests: report.jev.requests - report.jev.answered_from_cache,
+  const result: Result = {method, model: report.jev.model, ms: report.timings_ms.investigate, prepMs, requests: report.jev.requests - report.jev.answered_from_cache,
     // Jev's price is known; another model's report has its tokens but not what the provider charged.
     inputTokens: report.jev.input_tokens, outputTokens: report.jev.output_tokens, cost: method.startsWith('jev') ? report.jev.input_tokens * JEV_PER_INPUT_TOKEN : null,
     found: unfold(report.incident).filter(p => p.key !== seedKey && p.type === 'process').map(p => ({name: p.name ?? '?', pid: p.pid, start: p.start ?? null, node: loaded.nodes.get(p.key)})),
     note: `recorded in an earlier run (${path.split('/').at(-1)})${report.jev.answered_from_cache ? `; ${report.jev.answered_from_cache} answers from the cache` : ''}`};
+  if (method.startsWith('jev')) lastJev = {result, report};
+  return result;
+}
+
+/** Jev's result, enriched by the LLM exactly as the website's "Request narrative" does (ui/view.js). */
+async function enrich(): Promise<Result> {
+  if (!lastJev) throw new Error('enrich needs an earlier jev (or jev@report) method');
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OPENROUTER_API_KEY is not set');
+  const View = createRequire(import.meta.url)('../../ui/view.js') as {narrate: (report: unknown, key: string, options: {model: string}) =>
+    Promise<{timeline: {techniques: string[]; tactic: string}[]; execution_chain: string; usage: {cost?: number; prompt_tokens?: number; completion_tokens?: number}}>};
+  const started = performance.now();
+  const draft = await View.narrate(lastJev.report, key, {model: values.llm!});
+  const ms = performance.now() - started, jev = lastJev.result;
+  const mapped = draft.timeline.filter(row => row.tactic || row.techniques.length).length;
+  return {...jev, method: 'enrich', model: `${jev.model} + ${values.llm}`, ms: jev.ms + ms, requests: jev.requests + 1,
+    inputTokens: jev.inputTokens + (draft.usage.prompt_tokens ?? 0), outputTokens: jev.outputTokens + (draft.usage.completion_tokens ?? 0),
+    cost: (jev.cost ?? 0) + (draft.usage.cost ?? 0),
+    note: `Jev's incident; the narrative took ${(ms / 1000).toFixed(1)} s and $${(draft.usage.cost ?? 0).toFixed(4)}: ${draft.timeline.length} rows drafted, ` +
+      `${mapped} with ATT&CK mapping, a ${draft.execution_chain.split('\n').length}-line chain`};
 }
 
 /** The telemetry an analyst (or an LLM) would read: every process start after the seed on its host, and
@@ -229,6 +257,8 @@ for (const spec of methods) {
     } else if (method === 'llm-judge') {
       const spend = {cost: 0};
       result = await engineRun('llm-judge', llmJudge(spend), values.llm!, undefined, spend);
+    } else if (method === 'enrich') {
+      result = await enrich();
     } else if (method === 'llm-alone') {
       result = await llmAlone();
     } else {
@@ -262,7 +292,8 @@ const scored = results.map(r => {
 
 const sec = (ms: number) => ms < 10_000 ? `${(ms / 1000).toFixed(2)} s` : `${(ms / 1000).toFixed(1)} s`;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const label = (m: string) => ({jev: 'Jevline + Jev', 'jev-replay': 'Jevline + Jev, replayed from cache', 'llm-judge': `Jevline + ${values.llm} as judge`,
+const label = (m: string) => ({jev: 'Jevline + Jev', 'jev-replay': 'Jevline + Jev, replayed from cache', enrich: `Jevline + Jev, enriched by ${values.llm}`,
+  'llm-judge': `Jevline + ${values.llm} as judge`,
   'llm-alone': `${values.llm} alone`})[m] ?? m;
 const total = truth.processes.length;
 const md: string[] = [
