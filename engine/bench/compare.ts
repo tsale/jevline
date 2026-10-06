@@ -4,10 +4,10 @@
 //
 //   set -a; . ../.env; set +a      # TYPESAFE_API_KEY and OPENROUTER_API_KEY
 //   node bench/compare.ts <log files...> --seed name:2.8.exe --context "..." --truth truth.json \
-//     --methods jev,jev,jev-replay,enrich,llm-judge,llm-alone --llm z-ai/glm-5.3-flash --out results
+//     --methods jev,jev,jev-replay,verify,llm-judge,llm-alone --llm z-ai/glm-5.3-flash --out results
 //
-// enrich: the LLM enriches the latest Jev result as the website's "Request narrative" does (titles,
-// summaries, ATT&CK mapping, a written chain). Membership, and so the score, stays Jev's.
+// verify: the LLM checks the latest Jev result in one prompt (the whole incident, without Jev's scores) and
+// members it rejects are removed, with whatever joined only through them.
 //
 // A method written as <method>@<report.json> reuses the report.json of an earlier run of that method
 // (its timing, requests and tokens are as recorded then), so a later failure does not mean paying again.
@@ -17,7 +17,6 @@
 // (addresses, domains and accounts in the incident are not in the ground truth); results after `until`
 // are listed but not scored. Live calls spend credit and send the telemetry to the providers.
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
-import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 import {analyze, findSeed, iso, load, unfold, type Loaded, type ProcessRow} from '../src/analyze.ts';
@@ -108,7 +107,7 @@ function llmJudge(spend: {cost: number}): Transport {
 }
 
 // ---- Methods ---------------------------------------------------------------------------------
-/** The latest Jev result and its report, for enrich. */
+/** The latest Jev result and its report, for verify. */
 let lastJev: {result: Result; report: unknown} | null = null;
 
 async function engineRun(method: string, transport: Transport, model: string, cacheFile?: string, spend?: {cost: number}): Promise<Result> {
@@ -144,22 +143,50 @@ function fromReport(method: string, path: string): Result {
   return result;
 }
 
-/** Jev's result, enriched by the LLM exactly as the website's "Request narrative" does (ui/view.js). */
-async function enrich(): Promise<Result> {
-  if (!lastJev) throw new Error('enrich needs an earlier jev (or jev@report) method');
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('OPENROUTER_API_KEY is not set');
-  const View = createRequire(import.meta.url)('../../ui/view.js') as {narrate: (report: unknown, key: string, options: {model: string}) =>
-    Promise<{timeline: {techniques: string[]; tactic: string}[]; execution_chain: string; usage: {cost?: number; prompt_tokens?: number; completion_tokens?: number}}>};
+const VERIFY = 'You review an incident investigation. An analyst confirmed the seed as malicious. An automated investigation then ' +
+  'linked each member below to the incident through the telemetry links shown (started, injected into, dropped and ran, persisted, ' +
+  'contacted, logged on and so on). For each member, give the probability (0 to 1) that the link is correct: that the attacker\'s ' +
+  'activity really continued through this member, rather than ordinary user, system or background activity that happens to be linked. ' +
+  'Reply with only a JSON object mapping every member label to its probability, for example {"M1": 0.9, "M2": 0.1}.';
+
+/**
+ * Jev's incident checked by the LLM in one prompt: the whole incident (seed, every member with its identity and the
+ * links that brought it in, without Jev's scores), one probability per member that its link is correct. Members
+ * below 0.5 are removed, and so is anything that joined only through removed members.
+ */
+async function verify(): Promise<Result> {
+  if (!lastJev) throw new Error('verify needs an earlier jev (or jev@report) method');
+  const report = lastJev.report as {seed: ProcessRow; incident: ProcessRow[]};
+  const seedRow = report.seed, rows = report.incident.filter(r => r.key !== seedRow.key);
+  const label = new Map<string, string>([[seedRow.key, 'seed']]);
+  rows.forEach((r, i) => { label.set(r.key, `M${i + 1}`); for (const o of r.repeats?.others ?? []) label.set(o.key, `M${i + 1}`); });
+  const clip = (t: string | undefined, n: number) => t && t.length > n ? `${t.slice(0, n)}…` : t;
+  const who = (r: ProcessRow) => Object.fromEntries(Object.entries({type: r.type, name: r.name, pid: r.pid, host: r.host, user: r.user, path: r.path,
+    command_line: clip(r.command_line, 400), started: r.start, joined: r.type === 'process' ? undefined : r.joined_incident,
+    identical_repeats: r.repeats?.count}).filter(([, v]) => v !== undefined));
+  const members = Object.fromEntries(rows.map(r => [label.get(r.key)!, {...who(r),
+    linked_through: (r.joined?.via ?? []).map(v => ({link: v.link, from: label.get(v.from_key) ?? v.from, at: v.at, detail: clip(v.detail, 200)}))}]));
+  const content = JSON.stringify({analyst_context: values.context, seed: who(seedRow), members});
   const started = performance.now();
-  const draft = await View.narrate(lastJev.report, key, {model: values.llm!});
-  const ms = performance.now() - started, jev = lastJev.result;
-  const mapped = draft.timeline.filter(row => row.tactic || row.techniques.length).length;
-  return {...jev, method: 'enrich', model: `${jev.model} + ${values.llm}`, ms: jev.ms + ms, requests: jev.requests + 1,
-    inputTokens: jev.inputTokens + (draft.usage.prompt_tokens ?? 0), outputTokens: jev.outputTokens + (draft.usage.completion_tokens ?? 0),
-    cost: (jev.cost ?? 0) + (draft.usage.cost ?? 0),
-    note: `Jev's incident; the narrative took ${(ms / 1000).toFixed(1)} s and $${(draft.usage.cost ?? 0).toFixed(4)}: ${draft.timeline.length} rows drafted, ` +
-      `${mapped} with ATT&CK mapping, a ${draft.execution_chain.split('\n').length}-line chain`};
+  const reply = await chat([{role: 'system', content: VERIFY}, {role: 'user', content}], 900_000, 65_536);
+  const ms = performance.now() - started, data = json(reply.text);
+  const kept = new Set(rows.filter(r => { const p = Number(data[label.get(r.key)!]); return !Number.isFinite(p) || p >= 0.5; }).map(r => r.key));
+  // Drop members that joined only through dropped ones, until nothing changes.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const r of rows) {
+      if (!kept.has(r.key)) continue;
+      const from = (r.joined?.via ?? []).map(v => v.from_key).map(k => rows.find(x => x.key === k || x.repeats?.others.some(o => o.key === k))?.key ?? k);
+      if (from.length && from.every(k => k !== seedRow.key && !kept.has(k))) { kept.delete(r.key); changed = true; }
+    }
+  }
+  const jev = lastJev.result, keptKeys = new Set(unfold(rows.filter(r => kept.has(r.key))).map(r => r.key));
+  const removed = rows.length - kept.size, unanswered = rows.filter(r => !Number.isFinite(Number(data[label.get(r.key)!]))).length;
+  return {...jev, method: 'verify', model: `${jev.model} + ${values.llm}`, ms: jev.ms + ms, requests: jev.requests + 1,
+    inputTokens: jev.inputTokens + reply.promptTokens, outputTokens: jev.outputTokens + reply.completionTokens, cost: (jev.cost ?? 0) + reply.cost,
+    found: jev.found.filter(f => f.node && keptKeys.has(f.node.key)),
+    note: `one prompt of ${rows.length} members (${(content.length / 1000).toFixed(0)}k characters): ${(ms / 1000).toFixed(1)} s, $${reply.cost.toFixed(4)}; ` +
+      `${removed} rows removed${unanswered ? `, ${unanswered} unanswered (kept)` : ''}`};
 }
 
 /** The telemetry an analyst (or an LLM) would read: every process start after the seed on its host, and
@@ -257,8 +284,8 @@ for (const spec of methods) {
     } else if (method === 'llm-judge') {
       const spend = {cost: 0};
       result = await engineRun('llm-judge', llmJudge(spend), values.llm!, undefined, spend);
-    } else if (method === 'enrich') {
-      result = await enrich();
+    } else if (method === 'verify') {
+      result = await verify();
     } else if (method === 'llm-alone') {
       result = await llmAlone();
     } else {
@@ -292,7 +319,7 @@ const scored = results.map(r => {
 
 const sec = (ms: number) => ms < 10_000 ? `${(ms / 1000).toFixed(2)} s` : `${(ms / 1000).toFixed(1)} s`;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const label = (m: string) => ({jev: 'Jevline + Jev', 'jev-replay': 'Jevline + Jev, replayed from cache', enrich: `Jevline + Jev, enriched by ${values.llm}`,
+const label = (m: string) => ({jev: 'Jevline + Jev', 'jev-replay': 'Jevline + Jev, replayed from cache', verify: `Jevline + Jev, checked by ${values.llm}`,
   'llm-judge': `Jevline + ${values.llm} as judge`,
   'llm-alone': `${values.llm} alone`})[m] ?? m;
 const total = truth.processes.length;
