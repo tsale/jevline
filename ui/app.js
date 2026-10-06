@@ -614,6 +614,18 @@
     try { await navigator.clipboard.writeText(state.chainMarkdown); setStatus('Execution chain copied as Markdown.'); }
     catch { setStatus('Copy failed; select the text to copy it manually.', true); }
   });
+  // The star count, current: the build's count is a snapshot, so ask this site's /api/stars (which reads
+  // GitHub, cached for an hour). The page itself still contacts only this site.
+  (async () => {
+    try {
+      const response = await fetch('api/stars', {credentials: 'same-origin'});
+      const {count} = await response.json();
+      const link = document.querySelector('.github-star-count');
+      if (!response.ok || !Number.isInteger(count) || !link) return;
+      link.textContent = count.toLocaleString('en-US');
+      link.setAttribute('aria-label', `${count.toLocaleString('en-US')} ${count === 1 ? 'user has' : 'users have'} starred this repository`);
+    } catch { /* Keep the count from the build. */ }
+  })();
   renderAll();
   renderButtons();
 })();

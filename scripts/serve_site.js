@@ -10,6 +10,7 @@ const http = require('node:http');
 const path = require('node:path');
 const {createHandler} = require('../api/_relay.js');
 const analysis = require('../api/_analyze.js');
+const stars = require('../api/stars.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const SITE = path.join(ROOT, '_site');
@@ -35,6 +36,7 @@ http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/api/jev') return relay(req, res);
   if (url.pathname === '/api/analyze') return analyze(req, res);
+  if (url.pathname === '/api/stars') return stars(req, res);
   let file;
   try { file = path.normalize(path.join(SITE, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname))); } catch { file = ''; }
   if (!file.startsWith(SITE + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.statusCode = 404; return res.end('Not found'); }
