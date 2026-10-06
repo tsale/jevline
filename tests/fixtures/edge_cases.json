@@ -1,0 +1,361 @@
+{
+ "events": [
+  {
+   "_id": "seed",
+   "_source": {
+    "@timestamp": "2026-09-21T10:00:00.1234567Z",
+    "event": {
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ],
+     "action": "start"
+    },
+    "host": {
+     "name": "EDGE-1"
+    },
+    "user": {
+     "name": "analyst"
+    },
+    "process": {
+     "name": "cmd.exe",
+     "pid": 100,
+     "entity_id": "E-seed",
+     "executable": "C:\\Windows\\System32\\cmd.exe",
+     "command_line": "cmd.exe /c stage.exe",
+     "parent": {
+      "entity_id": "E-explorer",
+      "name": "explorer.exe",
+      "pid": 50,
+      "extra": "dropped"
+     },
+     "hash": {
+      "sha256": "aa11"
+     },
+     "Ext": {
+      "ancestry": [
+       "E-explorer"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "early-grandchild",
+   "@timestamp": "2026-09-21T09:59:00",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "payload.exe",
+    "pid": 130,
+    "entity_id": "E-gc",
+    "parent": {
+     "entity_id": "E-child2"
+    }
+   }
+  },
+  {
+   "id": "child2",
+   "@timestamp": "2026-09-21T12:00:05+02:00",
+   "kind": "Process",
+   "action": "start",
+   "host": "EDGE-1",
+   "process": {
+    "name": "stage.exe",
+    "pid": 110,
+    "entity_id": "E-child2",
+    "parent": {
+     "entity_id": "E-seed"
+    },
+    "sha256": "bb22"
+   }
+  },
+  {
+   "id": "numeric-time",
+   "@timestamp": 1789984830000,
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "svchost.exe",
+    "pid": 4,
+    "entity_id": "E-svc"
+   }
+  },
+  {
+   "id": "sysmon",
+   "@timestamp": "2026-09-21T10:20:00Z",
+   "kind": "sysmon",
+   "action": "1",
+   "host": "EDGE-1",
+   "process": {
+    "name": "notepad.exe",
+    "entity_id": "E-np",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "file-write",
+   "@timestamp": "2026-09-21T10:00:01.5Z",
+   "kind": "file",
+   "host": "EDGE-1",
+   "process": {
+    "entity_id": "E-seed"
+   },
+   "file": {
+    "path": "C:\\Users\\analyst\\stage.exe",
+    "name": "stage.exe",
+    "other": "dropped"
+   }
+  },
+  {
+   "_id": "net-1",
+   "fields": {
+    "@timestamp": [
+     "2026-09-21T10:00:06.000Z"
+    ],
+    "event.category": [
+     "network"
+    ],
+    "host.name": [
+     "EDGE-1"
+    ],
+    "process.entity_id": [
+     "E-child2"
+    ],
+    "process.name": [
+     "stage.exe"
+    ],
+    "destination.ip": [
+     "203.0.113.5"
+    ],
+    "destination.port": [
+     443
+    ],
+    "dns.question.name": [
+     "example.test"
+    ],
+    "event.type": []
+   }
+  },
+  {
+   "id": "list-action",
+   "@timestamp": "2026-09-21T10:01:00Z",
+   "event": {
+    "category": "process",
+    "action": [
+     "exec",
+     "x"
+    ]
+   },
+   "host": {
+    "name": "EDGE-1"
+   },
+   "process": {
+    "name": "rundll32.exe",
+    "entity_id": "E-rd",
+    "parent": {
+     "entity_id": "E-gc"
+    }
+   }
+  },
+  {
+   "id": "top-name",
+   "time": "2026-09-21T10:02:00Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "name": "wscript.exe",
+   "pid": 7,
+   "entity_id": "E-ws"
+  },
+  {
+   "id": "other-host",
+   "@timestamp": "2026-09-21T10:00:02Z",
+   "kind": "execution",
+   "host": "EDGE-2",
+   "process": {
+    "name": "calc.exe",
+    "entity_id": "E-seed"
+   }
+  },
+  {
+   "id": "no-host",
+   "@timestamp": "2026-09-21T10:00:03Z",
+   "kind": "execution",
+   "process": {
+    "name": "x.exe"
+   }
+  },
+  {
+   "id": "bad-time",
+   "@timestamp": "not-a-time",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "y.exe",
+    "entity_id": "E-y"
+   }
+  },
+  {
+   "id": "reg-1",
+   "@timestamp": "2026-09-21T10:00:04Z",
+   "kind": "registry",
+   "host": "EDGE-1",
+   "process": {
+    "entity_id": "E-child2"
+   },
+   "registry": {
+    "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "value": "stage"
+   },
+   "target": {
+    "image": "a.exe"
+   },
+   "source": {
+    "ip": "10.0.0.1"
+   }
+  },
+  {
+   "id": "unicode",
+   "@timestamp": "2026-09-21T10:03:00.5+00:00",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "pwsh.exe",
+    "entity_id": "E-u",
+    "command_line": "pwsh -c 'café ✓ \"quoted\"\ttab'"
+   }
+  },
+  {
+   "event": {
+    "id": "evid-1",
+    "category": [
+     "process"
+    ],
+    "type": "start"
+   },
+   "@timestamp": "2026-09-21T10:04:00Z",
+   "host": "EDGE-1",
+   "process": {
+    "name": "z.exe",
+    "entity_id": "E-z"
+   }
+  },
+  {
+   "id": "edge3-start",
+   "@timestamp": "2026-09-21T10:30:00Z",
+   "kind": "execution",
+   "host": "EDGE-3",
+   "process": {
+    "name": "boundary.exe",
+    "entity_id": "E-b1"
+   }
+  },
+  {
+   "id": "edge3-file",
+   "@timestamp": "2026-09-21T10:40:00Z",
+   "kind": "file",
+   "host": "EDGE-3",
+   "process": {
+    "entity_id": "E-b2"
+   },
+   "file": {
+    "path": "C:\\exactly-600s-later.txt"
+   }
+  },
+  {
+   "id": "c1",
+   "@timestamp": "2026-09-21T10:05:01Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child1.exe",
+    "entity_id": "E-c1",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c2",
+   "@timestamp": "2026-09-21T10:05:02Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child2.exe",
+    "entity_id": "E-c2",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c3",
+   "@timestamp": "2026-09-21T10:05:03Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child3.exe",
+    "entity_id": "E-c3",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c4",
+   "@timestamp": "2026-09-21T10:05:04Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child4.exe",
+    "entity_id": "E-c4",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c5",
+   "@timestamp": "2026-09-21T10:05:05Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child5.exe",
+    "entity_id": "E-c5",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c6",
+   "@timestamp": "2026-09-21T10:05:06Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child6.exe",
+    "entity_id": "E-c6",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  },
+  {
+   "id": "c7",
+   "@timestamp": "2026-09-21T10:05:07Z",
+   "kind": "execution",
+   "host": "EDGE-1",
+   "process": {
+    "name": "child7.exe",
+    "entity_id": "E-c7",
+    "parent": {
+     "entity_id": "E-seed"
+    }
+   }
+  }
+ ]
+}

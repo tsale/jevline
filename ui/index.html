@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Jevline — local incident review</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Jevline</div>
+        <nav class="page-nav" role="tablist" aria-label="Review pages">
+          <button id="nav-setup" type="button" role="tab" aria-controls="page-setup" aria-selected="true">Source &amp; analysis</button>
+          <button id="nav-events" type="button" role="tab" aria-controls="page-events" aria-selected="false">Event timeline</button>
+          <button id="nav-chain" type="button" role="tab" aria-controls="page-chain" aria-selected="false">Execution chain</button>
+          <button id="nav-table" type="button" role="tab" aria-controls="page-table" aria-selected="false">Evidence table</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <div id="page-setup" class="view" role="tabpanel" aria-labelledby="nav-setup">
+        <div class="setup-grid">
+          <section class="panel" aria-labelledby="source-title">
+            <div class="panel-head"><h2 id="source-title">Source events</h2><span class="small">JSON · 1–500 events · 2 MiB max</span></div>
+            <div class="panel-body">
+              <div id="drop" class="drop" role="group" aria-label="Drop JSON telemetry here">
+                <div class="drop-copy"><strong>Drop a JSON export here</strong><span>Process, file, network or registry events</span></div>
+                <button id="choose" class="button" type="button">Choose file</button>
+                <input id="file" type="file" accept=".json,application/json" hidden>
+              </div>
+              <div class="source-line"><span id="source" class="small">No events loaded</span><button id="preview" class="button subtle" type="button" hidden>Load bundled malicious-events example</button></div>
+              <div class="field-grid">
+                <label for="seed">Starting execution
+                  <span class="field-hint">Select the process start you have confirmed.</span>
+                  <select id="seed" disabled><option value="">Load events first</option></select>
+                </label>
+                <label for="description">Analyst context
+                  <textarea id="description" placeholder="Why is this execution under review?" maxlength="500"></textarea>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <div>
+            <section class="panel operation-panel" aria-labelledby="actions-title">
+              <h2 id="actions-title">Actions</h2>
+              <div class="action-row">
+                <button id="analyze" class="button primary" type="button" disabled>Analyze with Jev</button>
+                <button id="resume" class="button" type="button" hidden>Resume analysis</button>
+                <span id="status" class="status" role="status" aria-live="polite">Offline preview ready</span>
+              </div>
+              <div class="operation-divider" aria-hidden="true"></div>
+              <button id="narrate" class="button" type="button" disabled>Request narrative</button>
+              <div class="model-box">
+                <label for="narrative-model" class="model-field">Narrative model
+                  <span class="field-hint">Any OpenRouter model ID; used by Request narrative.</span>
+                  <input id="narrative-model" type="text" spellcheck="false" autocomplete="off" placeholder="deepseek/deepseek-v4.1-flash">
+                </label>
+              </div>
+              <div class="provider-box">
+                <div>Provider readiness · <strong id="model-name">Checking local server…</strong></div>
+                <span id="provider-status">Checking provider configuration…</span>
+                <button id="refresh-provider" class="button subtle" type="button">Refresh</button>
+                <span id="provider-help" class="provider-help"></span>
+              </div>
+              <div id="access-box" class="access-box" hidden>
+                <label for="access-code">Preview access code
+                  <input id="access-code" type="password" autocomplete="off" spellcheck="false" aria-describedby="access-help">
+                </label>
+                <button id="unlock" class="button" type="button">Unlock</button>
+                <span id="access-help" class="small">Printed in the workflow console at startup; changes on every restart. <span id="access-state" role="status"></span></span>
+              </div>
+              <div class="backend-field">
+                <label for="backend">Backend origin
+                  <input id="backend" type="text" spellcheck="false" aria-describedby="backend-help">
+                </label>
+                <span id="backend-help" class="small">Same-origin requests only.</span>
+              </div>
+            </section>
+            <p class="trust-note">Import stays in this browser; only Analyze sends events to this server, while narrative is a separate opt-in. Jev scores are relatedness, not maliciousness; never paste API keys.</p>
+          </div>
+        </div>
+
+        <section class="panel results" aria-label="Analysis results">
+          <h2>Results</h2>
+          <div class="result-grid">
+            <div class="result-section"><h3>Jev assessment</h3><div id="findings" class="empty">No server-issued decisions. Local preview does not assign relatedness.</div></div>
+            <div class="result-section"><h3>Narrative draft</h3><div id="narrative" class="empty">Narrative is optional and must be requested separately.</div></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="page-events" class="view" role="tabpanel" aria-labelledby="nav-events" hidden>
+        <section class="panel review-panel" aria-labelledby="timeline-title">
+          <div class="panel-head"><h2 id="timeline-title">Event timeline</h2><span id="count" class="small">0 linked events</span></div>
+          <div id="timeline-banner" class="enrichment" hidden></div>
+          <div class="legend" aria-label="Legend"><span><i class="dot seed"></i>Confirmed seed: your confirmation, not a Jev score</span><span><i class="dot related"></i>Jev-linked execution: relatedness, not a malware verdict</span><span><i class="dot context"></i>Same process: exact host and entity match, not Jev-scored</span></div>
+          <div class="review-content"><div id="timeline" class="timeline"><div class="empty">No linked events yet. Import source events, confirm a starting execution and analyze with Jev to build this sequence.</div></div></div>
+          <p class="footnote">Timestamps are shown as supplied; valid times are normalized only for ordering.</p>
+        </section>
+      </div>
+
+      <div id="page-chain" class="view" role="tabpanel" aria-labelledby="nav-chain" hidden>
+        <section class="panel review-panel" aria-labelledby="chain-title">
+          <div class="panel-head"><h2 id="chain-title">Execution chain</h2><div class="head-actions"><span id="chain-source" class="small"></span><button id="chain-toggle" class="button subtle" type="button" hidden>Show Jev-only chain</button><button id="copy-chain" class="button subtle" type="button" hidden>Copy Markdown</button></div></div>
+          <div id="chain-banner" class="enrichment" hidden></div>
+          <div class="review-content"><div id="chain" class="markdown"><div class="empty">No execution chain yet. Analyze with Jev to build the process chain; a narrative adds an AI-drafted version with ATT&amp;CK mapping.</div></div></div>
+          <p class="footnote">Process-to-process flow in time order. [evt:ID] links open the event in the timeline.</p>
+        </section>
+      </div>
+
+      <div id="page-table" class="view" role="tabpanel" aria-labelledby="nav-table" hidden>
+        <section class="panel review-panel" aria-labelledby="table-title">
+          <div class="panel-head"><h2 id="table-title">Evidence table</h2><span id="table-count" class="small">0 rows</span></div>
+          <div id="table-banner" class="enrichment" hidden></div>
+          <div id="table-summary" class="table-summary" aria-label="Assessment summary"></div>
+          <p id="table-guidance" class="table-guidance" role="status">Load an export to begin.</p>
+          <div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>Host</th><th>Phase</th><th>Title</th><th>Description</th><th>Tools</th><th>TTPs</th><th>Command Line</th><th>Indicator</th><th>Type</th><th>Pyramid</th></tr></thead><tbody id="table-body"></tbody></table></div>
+          <div class="table-empty" aria-hidden="true"><strong>Evidence will appear here.</strong><span>Complete the analysis to populate this incident-only record.</span></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="app.js" defer></script>
+</body>
+</html>

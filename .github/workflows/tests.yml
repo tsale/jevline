@@ -1,0 +1,27 @@
+# Offline tests for every push and pull request (providers are mocked). Vercel deploys the website.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Python engine and local portal
+        run: python3 -m unittest test_jev_incident.py test_web_app.py
+      - name: Browser engine, website, relay and UI
+        run: |
+          node ui/test_engine.js
+          node ui/test_browser.js
+          node ui/test_app.js
+          node ui/test_access.js
+          node tests/test_relay.js
+      - name: Website build
+        run: node scripts/build_site.js

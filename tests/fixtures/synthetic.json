@@ -1,0 +1,9 @@
+{
+  "events": [
+    {"id":"seed","@timestamp":"2026-09-21T17:18:50Z","kind":"execution","host":"WS-01","user":"analyst","process":{"name":"powershell.exe","pid":400,"entity_id":"proc-seed","command_line":"powershell.exe -EncodedCommand ...","parent":{"entity_id":"proc-shell"}}},
+    {"id":"file-1","@timestamp":"2026-09-21T17:18:51Z","kind":"file","host":"WS-01","process":{"entity_id":"proc-seed"},"file":{"path":"C:\\Users\\analyst\\AppData\\Local\\stage.exe"}},
+    {"id":"child","@timestamp":"2026-09-21T17:18:52Z","kind":"execution","host":"WS-01","user":"analyst","process":{"name":"stage.exe","pid":410,"entity_id":"proc-child","parent":{"entity_id":"proc-seed"},"command_line":"stage.exe /run"}},
+    {"id":"later","@timestamp":"2026-09-21T17:19:10Z","kind":"execution","host":"WS-01","user":"analyst","process":{"name":"rundll32.exe","pid":420,"entity_id":"proc-later","parent":{"entity_id":"proc-child"}}},
+    {"id":"unrelated","@timestamp":"2026-09-21T17:19:20Z","kind":"execution","host":"WS-02","user":"operator","process":{"name":"notepad.exe","pid":400,"entity_id":"proc-unrelated"}}
+  ]
+}

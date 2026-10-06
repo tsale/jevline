@@ -1,0 +1,13 @@
+# Never upload local secrets, run output or tooling state to Vercel.
+.env
+.env.*
+.config
+.openrouter
+.local-runs/
+_site/
+.git/
+.claude/
+.agents/
+__pycache__/
+*.pyc
+.vercel/

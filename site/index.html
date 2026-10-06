@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <!-- The page may only connect to this site (its Jev relay, api/jev.js) and to OpenRouter. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self' https://openrouter.ai; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Start from one process you know is malicious; Jev links the rest of the incident. Runs entirely in your browser.">
+  <title>Jevline — Jev incident timeline</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-mode="browser" data-jev-endpoint="api/jev">
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Jevline</div>
+        <nav class="page-nav" role="tablist" aria-label="Review pages">
+          <button id="nav-setup" type="button" role="tab" aria-controls="page-setup" aria-selected="true">Source &amp; analysis</button>
+          <button id="nav-events" type="button" role="tab" aria-controls="page-events" aria-selected="false">Event timeline</button>
+          <button id="nav-chain" type="button" role="tab" aria-controls="page-chain" aria-selected="false">Execution chain</button>
+          <button id="nav-table" type="button" role="tab" aria-controls="page-table" aria-selected="false">Evidence table</button>
+        </nav>
+        <button id="privacy-show" class="privacy-show" type="button" hidden>Privacy</button>
+        <a class="repo-link" href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer">Source code</a>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <div id="page-setup" class="view" role="tabpanel" aria-labelledby="nav-setup">
+        <section id="privacy-note" class="privacy-note" aria-labelledby="privacy-title">
+          <svg class="privacy-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5c0 4.6-3 8.4-7 10-4-1.6-7-5.4-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="privacy-body">
+            <h2 id="privacy-title">What reaches us, and what doesn't</h2>
+            <ul class="privacy-points">
+              <li><strong>Your files stay in your browser.</strong> Only the fields Jev needs are sent, one process at a time, through this site's relay to TypeSafe. Browsers can't call TypeSafe directly, so the relay forwards each request as-is and keeps nothing.</li>
+              <li><strong>Demo key or yours.</strong> The demo uses our TypeSafe key, on the bundled lab example only. Your own key is passed along with each request and never stored or logged.</li>
+              <li><strong>OpenRouter goes direct.</strong> Your OpenRouter key goes straight from this browser to <code>openrouter.ai</code>. The page can't connect anywhere else; <a href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer">read the code</a>.</li>
+            </ul>
+          </div>
+          <button id="privacy-dismiss" class="privacy-dismiss" type="button" aria-label="Dismiss privacy notice" title="Dismiss">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </section>
+
+        <div class="setup-grid">
+          <section class="panel" aria-labelledby="source-title">
+            <div class="panel-head"><h2 id="source-title">Source events</h2><span class="small">JSON · 1–500 events · 2 MiB max</span></div>
+            <div class="panel-body">
+              <div id="drop" class="drop" role="group" aria-label="Drop JSON telemetry here">
+                <div class="drop-copy"><strong>Drop a JSON export here</strong><span>Process, file, network or registry events</span></div>
+                <button id="choose" class="button" type="button">Choose file</button>
+                <input id="file" type="file" accept=".json,application/json" hidden>
+              </div>
+              <div class="source-line"><span id="source" class="small">No events loaded</span><button id="preview" class="button subtle" type="button">Load bundled malicious-events example</button></div>
+              <div class="field-grid">
+                <label for="seed">Starting execution
+                  <span class="field-hint">Select the process start you have confirmed.</span>
+                  <select id="seed" disabled><option value="">Load events first</option></select>
+                </label>
+                <label for="description">Analyst context
+                  <textarea id="description" placeholder="Why is this execution under review?" maxlength="500"></textarea>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <div>
+            <section class="panel operation-panel" aria-labelledby="actions-title">
+              <h2 id="actions-title">Actions</h2>
+              <div class="action-row">
+                <button id="analyze" class="button primary" type="button" disabled>Analyze with Jev</button>
+                <button id="resume" class="button" type="button" hidden>Resume analysis</button>
+                <span id="status" class="status" role="status" aria-live="polite">Offline preview ready</span>
+              </div>
+              <div class="operation-divider" aria-hidden="true"></div>
+              <div class="secondary-actions">
+                <button id="narrate" class="button" type="button" disabled>Request narrative</button>
+                <button id="download" class="button subtle" type="button" hidden>Download run (JSON)</button>
+              </div>
+              <div class="keys-box" role="group" aria-labelledby="keys-title">
+                <h3 id="keys-title">Jev access and API keys</h3>
+                <fieldset class="jev-mode">
+                  <legend class="sr-only">Jev access</legend>
+                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Demo key</strong><span class="field-hint">Ours, free to try. Bundled lab example only.</span></span></label>
+                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">Analyze your own files.</span></span></label>
+                </fieldset>
+                <label id="jev-key-field" for="jev-key" hidden>TypeSafe (Jev) API key
+                  <span class="field-hint">Sent with each request through the relay, never stored. <a href="https://docs.typesafe.ai/introduction/quickstart" target="_blank" rel="noopener noreferrer">Get a key</a></span>
+                  <input id="jev-key" type="password" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true">
+                </label>
+                <label for="openrouter-key">OpenRouter API key
+                  <span class="field-hint">Optional, only for narrative drafts.</span>
+                  <input id="openrouter-key" type="password" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true">
+                </label>
+                <label for="narrative-model" class="model-field">Narrative model
+                  <span class="field-hint">Any OpenRouter model ID; used by Request narrative.</span>
+                  <input id="narrative-model" type="text" spellcheck="false" autocomplete="off" placeholder="deepseek/deepseek-v4.1-flash">
+                </label>
+                <label class="check" for="remember-keys"><input id="remember-keys" type="checkbox"> Remember on this device</label>
+                <span class="small">Saved in this browser's local storage only. Leave unchecked on shared computers.</span>
+                <div class="key-row"><span id="key-status" class="small" role="status"></span><button id="forget-keys" class="button subtle" type="button">Forget keys</button></div>
+              </div>
+            </section>
+            <p class="trust-note">Importing stays in this browser. Analyze sends selected fields of the seed, each candidate and nearby events through this site's relay to TypeSafe; a narrative is a separate opt-in sent directly to OpenRouter. Jev scores are relatedness, not maliciousness.</p>
+          </div>
+        </div>
+
+        <section class="panel results" aria-label="Analysis results">
+          <h2>Results</h2>
+          <div class="result-grid">
+            <div class="result-section"><h3>Jev assessment</h3><div id="findings" class="empty">No Jev decisions. Local preview does not assign relatedness.</div></div>
+            <div class="result-section"><h3>Narrative draft</h3><div id="narrative" class="empty">Narrative is optional and must be requested separately.</div></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="page-events" class="view" role="tabpanel" aria-labelledby="nav-events" hidden>
+        <section class="panel review-panel" aria-labelledby="timeline-title">
+          <div class="panel-head"><h2 id="timeline-title">Event timeline</h2><span id="count" class="small">0 linked events</span></div>
+          <div id="timeline-banner" class="enrichment" hidden></div>
+          <div class="legend" aria-label="Legend"><span><i class="dot seed"></i>Confirmed seed: your confirmation, not a Jev score</span><span><i class="dot related"></i>Jev-linked execution: relatedness, not a malware verdict</span><span><i class="dot context"></i>Same process: exact host and entity match, not Jev-scored</span></div>
+          <div class="review-content"><div id="timeline" class="timeline"><div class="empty">No linked events yet. Import source events, confirm a starting execution and analyze with Jev to build this sequence.</div></div></div>
+          <p class="footnote">Timestamps are shown as supplied; valid times are normalized only for ordering.</p>
+        </section>
+      </div>
+
+      <div id="page-chain" class="view" role="tabpanel" aria-labelledby="nav-chain" hidden>
+        <section class="panel review-panel" aria-labelledby="chain-title">
+          <div class="panel-head"><h2 id="chain-title">Execution chain</h2><div class="head-actions"><span id="chain-source" class="small"></span><button id="chain-toggle" class="button subtle" type="button" hidden>Show Jev-only chain</button><button id="copy-chain" class="button subtle" type="button" hidden>Copy Markdown</button></div></div>
+          <div id="chain-banner" class="enrichment" hidden></div>
+          <div class="review-content"><div id="chain" class="markdown"><div class="empty">No execution chain yet. Analyze with Jev to build the process chain; a narrative adds an AI-drafted version with ATT&amp;CK mapping.</div></div></div>
+          <p class="footnote">Process-to-process flow in time order. [evt:ID] links open the event in the timeline.</p>
+        </section>
+      </div>
+
+      <div id="page-table" class="view" role="tabpanel" aria-labelledby="nav-table" hidden>
+        <section class="panel review-panel" aria-labelledby="table-title">
+          <div class="panel-head"><h2 id="table-title">Evidence table</h2><span id="table-count" class="small">0 rows</span></div>
+          <div id="table-banner" class="enrichment" hidden></div>
+          <div id="table-summary" class="table-summary" aria-label="Assessment summary"></div>
+          <p id="table-guidance" class="table-guidance" role="status">Load an export to begin.</p>
+          <div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>Host</th><th>Phase</th><th>Title</th><th>Description</th><th>Tools</th><th>TTPs</th><th>Command Line</th><th>Indicator</th><th>Type</th><th>Pyramid</th></tr></thead><tbody id="table-body"></tbody></table></div>
+          <div class="table-empty" aria-hidden="true"><strong>Evidence will appear here.</strong><span>Complete the analysis to populate this incident-only record.</span></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="engine.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

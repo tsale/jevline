@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 430" width="1000" height="430" role="img" aria-labelledby="title desc">
+  <title id="title">How Jevline works</title>
+  <desc id="desc">Step 1: your telemetry export contains many events, one of which an analyst has confirmed as malicious. Step 2: for each other process start, Jev is asked whether it belongs to the same incident; linked processes score at or above 0.8 and become context for later questions. Step 3: the result is a timeline that contains only the confirmed seed, the Jev-linked processes and activity from those same processes.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="loop" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7aa7ff"/>
+    </marker>
+    <style>
+      .label { font: 700 12px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: .08em; fill: #8e949d; }
+      .head { font: 650 16px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #eceef1; }
+      .body { font: 14px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #b4b9c1; }
+      .mono { font: 14px ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: #eceef1; }
+      .tiny { font: 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+      .panel { fill: #16181c; stroke: #2a2e35; }
+      .dot { fill: #3a404a; }
+    </style>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="999" height="429" rx="18" fill="#0d0f12" stroke="#2a2e35"/>
+
+  <!-- Step 1: telemetry -->
+  <text class="label" x="34" y="44">1 · YOUR TELEMETRY</text>
+  <rect class="panel" x="30" y="60" width="270" height="340" rx="12"/>
+  <text class="head" x="52" y="92">A JSON event export</text>
+  <g>
+    <circle class="dot" cx="64" cy="128" r="6"/><circle class="dot" cx="104" cy="122" r="6"/><circle class="dot" cx="141" cy="134" r="6"/><circle class="dot" cx="182" cy="124" r="6"/><circle class="dot" cx="222" cy="131" r="6"/><circle class="dot" cx="262" cy="121" r="6"/>
+    <circle class="dot" cx="70" cy="166" r="6"/><circle class="dot" cx="110" cy="174" r="6"/><circle class="dot" cx="186" cy="168" r="6"/><circle class="dot" cx="227" cy="176" r="6"/><circle class="dot" cx="264" cy="163" r="6"/>
+    <circle class="dot" cx="61" cy="212" r="6"/><circle class="dot" cx="103" cy="206" r="6"/><circle class="dot" cx="146" cy="216" r="6"/><circle class="dot" cx="185" cy="209" r="6"/><circle class="dot" cx="224" cy="218" r="6"/><circle class="dot" cx="266" cy="205" r="6"/>
+    <circle class="dot" cx="68" cy="252" r="6"/><circle class="dot" cx="108" cy="259" r="6"/><circle class="dot" cx="148" cy="249" r="6"/><circle class="dot" cx="190" cy="256" r="6"/><circle class="dot" cx="229" cy="247" r="6"/><circle class="dot" cx="262" cy="258" r="6"/>
+    <circle class="dot" cx="63" cy="294" r="6"/><circle class="dot" cx="101" cy="289" r="6"/><circle class="dot" cx="143" cy="298" r="6"/><circle class="dot" cx="183" cy="291" r="6"/><circle class="dot" cx="221" cy="300" r="6"/><circle class="dot" cx="260" cy="292" r="6"/>
+  </g>
+  <circle cx="146" cy="170" r="17" fill="none" stroke="#f2b661" stroke-opacity=".45" stroke-width="2"/>
+  <circle cx="146" cy="170" r="8" fill="#f2b661"/>
+  <text class="body" x="52" y="336">Hundreds of process, file,</text>
+  <text class="body" x="52" y="355">network and registry events</text>
+  <circle cx="58" cy="379" r="5" fill="#f2b661"/>
+  <text class="tiny" x="70" y="383" fill="#f7cf94">one confirmed-malicious process</text>
+
+  <!-- Arrow 1 -->
+  <line x1="308" y1="230" x2="350" y2="230" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 2: Jev -->
+  <text class="label" x="364" y="44">2 · JEV CHECKS EVERY PROCESS</text>
+  <rect class="panel" x="360" y="60" width="280" height="340" rx="12"/>
+  <text class="head" x="382" y="92">“Same incident as the seed?”</text>
+  <text class="body" x="382" y="114">One question per process start</text>
+
+  <rect x="378" y="134" width="244" height="40" rx="8" fill="#1e2126" stroke="#2f3540"/>
+  <text class="mono" x="394" y="159">stage.exe</text>
+  <rect x="506" y="145" width="104" height="20" rx="10" fill="#7aa7ff" fill-opacity=".16"/>
+  <text class="tiny" x="558" y="159" text-anchor="middle" fill="#a9c6ff">0.94 linked</text>
+
+  <rect x="378" y="184" width="244" height="40" rx="8" fill="#1e2126" stroke="#2f3540"/>
+  <text class="mono" x="394" y="209">rundll32.exe</text>
+  <rect x="506" y="195" width="104" height="20" rx="10" fill="#7aa7ff" fill-opacity=".16"/>
+  <text class="tiny" x="558" y="209" text-anchor="middle" fill="#a9c6ff">0.88 linked</text>
+
+  <rect x="378" y="234" width="244" height="40" rx="8" fill="#1e2126" stroke="#2f3540"/>
+  <text class="mono" x="394" y="259" fill="#8e949d" style="fill:#8e949d">notepad.exe</text>
+  <rect x="506" y="245" width="104" height="20" rx="10" fill="#ffffff" fill-opacity=".06"/>
+  <text class="tiny" x="558" y="259" text-anchor="middle" fill="#8e949d">0.08 not linked</text>
+
+  <path d="M405 309 A9 9 0 1 1 396 300" fill="none" stroke="#7aa7ff" stroke-width="2" stroke-linecap="round" marker-end="url(#loop)"/>
+  <text class="body" x="418" y="306">Linked processes (≥ 0.8)</text>
+  <text class="body" x="418" y="325">become context for the</text>
+  <text class="body" x="418" y="344">next question</text>
+  <text class="tiny" x="382" y="383" fill="#8e949d">Relatedness, not a malware verdict</text>
+
+  <!-- Arrow 2 -->
+  <line x1="648" y1="230" x2="690" y2="230" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 3: timeline -->
+  <text class="label" x="704" y="44">3 · INCIDENT TIMELINE</text>
+  <rect class="panel" x="700" y="60" width="270" height="340" rx="12"/>
+  <text class="head" x="722" y="92">Only the linked activity</text>
+  <line x1="732" y1="128" x2="732" y2="296" stroke="#2f3540" stroke-width="2"/>
+
+  <circle cx="732" cy="128" r="7" fill="#f2b661"/>
+  <text class="mono" x="750" y="132">powershell.exe</text>
+  <text class="tiny" x="750" y="150" fill="#f7cf94">confirmed seed</text>
+
+  <circle cx="732" cy="184" r="7" fill="#5fc9b4"/>
+  <text class="mono" x="750" y="188">writes stage.exe</text>
+  <text class="tiny" x="750" y="206" fill="#93dccd">same process, context</text>
+
+  <circle cx="732" cy="240" r="7" fill="#7aa7ff"/>
+  <text class="mono" x="750" y="244">stage.exe</text>
+  <text class="tiny" x="750" y="262" fill="#a9c6ff">Jev linked · 94%</text>
+
+  <circle cx="732" cy="296" r="7" fill="#7aa7ff"/>
+  <text class="mono" x="750" y="300">rundll32.exe</text>
+  <text class="tiny" x="750" y="318" fill="#a9c6ff">Jev linked · 88%</text>
+
+  <text class="body" x="722" y="358">Timeline + evidence table</text>
+  <text class="body" x="722" y="377">for analyst review</text>
+</svg>
