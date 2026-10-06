@@ -14,6 +14,7 @@ type Message =
 const scope = globalThis as unknown as {onmessage: ((event: {data: Message}) => void) | null; postMessage(message: unknown): void};
 const post = (message: unknown) => scope.postMessage(message);
 let loaded: Loaded | null = null;
+let received = 0;  // Jev answers received in this session, for the page to say whether a retry reuses any.
 // Jev answers from this page's earlier runs, by request hash: a run after a failure, or with another
 // threshold, reuses every answer already received instead of paying for it again.
 const answers = new Map<string, JevResponse>();
@@ -74,6 +75,7 @@ async function handle(message: Message) {
   const transport = relay(message.access.endpoint, message.access.key);
   const client = new JevClient(async (body, signal) => {
     const response = await transport(body, signal);
+    received++;
     post({type: 'progress', stage: 'ask', round, answered: ++answered});
     return response;
   }, {concurrency: 6, answers: memory, onRequest: (sha256, body) => requests.push({sha256, body: JSON.parse(body) as unknown})});
@@ -84,5 +86,5 @@ async function handle(message: Message) {
 }
 
 scope.onmessage = event => {
-  handle(event.data).catch((error: Error) => post({type: 'error', during: event.data.type, message: error.message || String(error)}));
+  handle(event.data).catch((error: Error) => post({type: 'error', during: event.data.type, message: error.message || String(error), answers: received}));
 };

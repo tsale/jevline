@@ -123,12 +123,12 @@
       case 'mapping': saveMapping(message.mapping); break;
       case 'loaded': loaded(message.summary, message.seeds); break;
       case 'report': finished(message.report, message.requests); break;
-      case 'error': fail(message.during === 'load' ? `Reading failed: ${message.message}` : `Analysis failed: ${message.message}`, message.during); break;
+      case 'error': fail(message.during === 'load' ? `Reading failed: ${message.message}` : `Analysis failed: ${message.message}`, message.during, message.answers); break;
     }
   }
-  function fail(message, during) {
+  function fail(message, during, answers = 0) {
     state.busy = false;
-    setStatus(state.report === null && during === 'analyze' && state.summary ? `${message} Analyze again to continue: answers already received are reused.` : message, true);
+    setStatus(during === 'analyze' && answers ? `${message} Analyze again to continue: the ${plural(answers, 'answer')} already received are reused.` : message, true);
     renderButtons();
   }
 

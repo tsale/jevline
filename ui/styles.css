@@ -302,9 +302,7 @@ label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--ac
   .github-star { position: absolute; top: 8px; right: 16px; margin-left: 0; }
   .github-star a { height: 28px; }
   .brand { display: block; margin-bottom: 6px; }
-  .page-nav { gap: 0; min-height: 44px; margin: 0 -10px; overflow-x: auto; scrollbar-width: none; }
-  .page-nav::-webkit-scrollbar { display: none; }
-  .page-nav button { flex: 0 0 auto; white-space: nowrap; }
+  .page-nav { gap: 0; min-height: 44px; margin: 0 -10px; }
   .page-nav button { padding: 0 10px; font-size: 13px; }
   .page-nav button[aria-selected="true"]::after { left: 10px; right: 10px; }
   .workspace { padding: 20px 14px 64px; }
@@ -353,3 +351,9 @@ input[type="search"]:disabled, input[type="text"]:disabled { color: var(--text-3
 .member-name { color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
 .member-meta { display: block; margin-top: 2px; color: var(--text-3); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
 #incident-empty { padding: 28px 24px; border-top: 1px solid var(--line); }
+.repo-link { white-space: nowrap; }
+/* Five tabs: the tab bar shrinks and scrolls rather than pushing into the links beside it. */
+.page-nav { overflow-x: auto; scrollbar-width: none; }
+.page-nav::-webkit-scrollbar { display: none; }
+.page-nav button { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 1100px) { .topbar-inner { gap: 20px; } .page-nav button { padding: 0 9px; } }
