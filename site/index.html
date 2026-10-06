@@ -7,18 +7,19 @@
   <!-- The page may only connect to this site (its Jev relay, api/jev.js) and to OpenRouter. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self' https://openrouter.ai; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="Start from one process you know is malicious; Jev links the rest of the incident. Runs entirely in your browser.">
+  <meta name="description" content="Start from one process, address, account or host you know is malicious; Jev links the rest of the incident. Any log format and schema; runs in your browser.">
   <title>Jevline — Jev incident timeline</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body data-mode="browser" data-jev-endpoint="api/jev">
+<body data-mode="browser" data-jev-endpoint="api/jev" data-analyze-endpoint="api/analyze">
   <div class="shell">
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">Jevline</div>
         <nav class="page-nav" role="tablist" aria-label="Review pages">
           <button id="nav-setup" type="button" role="tab" aria-controls="page-setup" aria-selected="true">Source &amp; analysis</button>
+          <button id="nav-incident" type="button" role="tab" aria-controls="page-incident" aria-selected="false">Incident</button>
           <button id="nav-events" type="button" role="tab" aria-controls="page-events" aria-selected="false">Event timeline</button>
           <button id="nav-chain" type="button" role="tab" aria-controls="page-chain" aria-selected="false">Execution chain</button>
           <button id="nav-table" type="button" role="tab" aria-controls="page-table" aria-selected="false">Evidence table</button>
@@ -39,8 +40,8 @@
           <div class="privacy-body">
             <h2 id="privacy-title">What reaches us, and what doesn't</h2>
             <ul class="privacy-points">
-              <li><strong>Your files stay in your browser.</strong> Only the fields Jev needs are sent, one process at a time, through this site's relay to TypeSafe. Browsers can't call TypeSafe directly, so the relay forwards each request as-is and keeps nothing.</li>
-              <li><strong>Demo key or yours.</strong> The demo uses our TypeSafe key, on the bundled lab example only. Your own key is passed along with each request and never stored or logged.</li>
+              <li><strong>Nothing is kept.</strong> With our free key, your logs (up to 2 MB) are sent to our server, analyzed in memory and discarded when the result is back: not stored, not logged. With your own TypeSafe key, they never leave your browser.</li>
+              <li><strong>Our key or yours.</strong> Our TypeSafe key is free and only ever answers questions our server builds from your uploaded logs. Your own key is passed along with each request from your browser and never stored or logged.</li>
               <li><strong>OpenRouter goes direct.</strong> Your OpenRouter key goes straight from this browser to <code>openrouter.ai</code>. The page can't connect anywhere else; <a href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer">read the code</a>.</li>
             </ul>
           </div>
@@ -51,21 +52,27 @@
 
         <div class="setup-grid">
           <section class="panel" aria-labelledby="source-title">
-            <div class="panel-head"><h2 id="source-title">Source events</h2><span class="small">JSON · 1–500 events · 2 MiB max</span></div>
+            <div class="panel-head"><h2 id="source-title">Log files</h2><span class="small">Any format, any schema · several files at once</span></div>
             <div class="panel-body">
-              <div id="drop" class="drop" role="group" aria-label="Drop JSON telemetry here">
-                <div class="drop-copy"><strong>Drop a JSON export here</strong><span>Process, file, network or registry events</span></div>
-                <button id="choose" class="button" type="button">Choose file</button>
-                <input id="file" type="file" accept=".json,application/json" hidden>
+              <div id="drop" class="drop" role="group" aria-label="Drop log files here">
+                <div class="drop-copy"><strong>Drop log files here</strong><span>JSON, NDJSON, CSV/TSV or plain text from any EDR, SIEM or log source. No mapping needed.</span></div>
+                <button id="choose" class="button" type="button">Choose files</button>
+                <input id="file" type="file" multiple accept=".json,.ndjson,.jsonl,.csv,.tsv,.log,.txt,application/json,text/csv,text/plain" hidden>
               </div>
-              <div class="source-line"><span id="source" class="small">No events loaded</span><button id="preview" class="button subtle" type="button">Load bundled malicious-events example</button></div>
+              <div class="source-line"><span id="source" class="small">No logs loaded</span><span class="example-actions"><button id="preview" class="button subtle" type="button">Load bundled lab example</button><a class="button subtle" href="{{REPO_URL}}/raw/main/examples/malicious_events.json" download="malicious_events.json" target="_blank" rel="noopener noreferrer">Download it from GitHub</a></span></div>
+              <div id="loaded-summary" class="loaded-summary" hidden></div>
               <div class="field-grid">
-                <label for="seed">Starting execution
-                  <span class="field-hint">Select the process start you have confirmed.</span>
-                  <select id="seed" disabled><option value="">Load events first</option></select>
+                <label for="seed-filter">Starting point
+                  <span class="field-hint">The process you have confirmed as malicious. Type to search the process starts in your logs.</span>
+                  <input id="seed-filter" type="search" placeholder="Search by name, PID, host or command line" spellcheck="false" autocomplete="off" disabled>
+                  <select id="seed" size="6" disabled><option value="">Load logs first</option></select>
+                </label>
+                <label for="seed-other">Or another starting point
+                  <span class="field-hint">An address, domain, account, host or event ID instead: <code>ip:198.51.100.66</code>, <code>domain:evil.example</code>, <code>user:svc_backup</code>, <code>host:srv-01</code>.</span>
+                  <input id="seed-other" type="text" spellcheck="false" autocomplete="off" disabled>
                 </label>
                 <label for="description">Analyst context
-                  <textarea id="description" placeholder="Why is this execution under review?" maxlength="500"></textarea>
+                  <textarea id="description" placeholder="Why is this starting point confirmed malicious?" maxlength="500"></textarea>
                 </label>
               </div>
             </div>
@@ -76,20 +83,20 @@
               <h2 id="actions-title">Actions</h2>
               <div class="action-row">
                 <button id="analyze" class="button primary" type="button" disabled>Analyze with Jev</button>
-                <button id="resume" class="button" type="button" hidden>Resume analysis</button>
-                <span id="status" class="status" role="status" aria-live="polite">Offline preview ready</span>
+                <span id="status" class="status" role="status" aria-live="polite">Load log files, or the bundled lab example, to begin.</span>
               </div>
               <div class="operation-divider" aria-hidden="true"></div>
               <div class="secondary-actions">
                 <button id="narrate" class="button" type="button" disabled>Request narrative</button>
-                <button id="download" class="button subtle" type="button" hidden>Download run (JSON)</button>
+                <button id="download" class="button subtle" type="button" hidden>Download report (JSON)</button>
+                <button id="download-requests" class="button subtle" type="button" hidden>Download Jev requests (JSONL)</button>
               </div>
               <div class="keys-box" role="group" aria-labelledby="keys-title">
                 <h3 id="keys-title">Jev access and API keys</h3>
                 <fieldset class="jev-mode">
                   <legend class="sr-only">Jev access</legend>
-                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Demo key</strong><span class="field-hint">Ours, free to try. Bundled lab example only.</span></span></label>
-                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">Analyze your own files.</span></span></label>
+                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Our free key</strong><span class="field-hint">Up to 2 MB of logs, analyzed on our server and not kept.</span></span></label>
+                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">No size limit; runs in your browser, billed to your TypeSafe account.</span></span></label>
                 </fieldset>
                 <label id="jev-key-field" for="jev-key" hidden>TypeSafe (Jev) API key
                   <span class="field-hint">Sent with each request through the relay, never stored. <a href="https://docs.typesafe.ai/introduction/quickstart" target="_blank" rel="noopener noreferrer">Get a key</a></span>
@@ -108,16 +115,26 @@
                 <div class="key-row"><span id="key-status" class="small" role="status"></span><button id="forget-keys" class="button subtle" type="button">Forget keys</button></div>
               </div>
             </section>
-            <p class="trust-note">Importing stays in this browser. Analyze sends selected fields of the seed, each candidate and nearby events through this site's relay to TypeSafe; a narrative is a separate opt-in sent directly to OpenRouter. Jev scores are relatedness, not maliciousness.</p>
+            <p class="trust-note">With our free key, the logs you load (up to 2 MB) are analyzed on our server and discarded afterwards. With your own TypeSafe key, reading and linking stay in this browser and only a summary of each candidate goes through this site's relay to TypeSafe. A narrative is a separate opt-in sent directly to OpenRouter. Jev scores are relatedness, not maliciousness.</p>
           </div>
         </div>
 
         <section class="panel results" aria-label="Analysis results">
           <h2>Results</h2>
           <div class="result-grid">
-            <div class="result-section"><h3>Jev assessment</h3><div id="findings" class="empty">No Jev decisions. Local preview does not assign relatedness.</div></div>
+            <div class="result-section"><h3>Jev assessment</h3><div id="findings" class="empty">No Jev decisions yet.</div></div>
             <div class="result-section"><h3>Narrative draft</h3><div id="narrative" class="empty">Narrative is optional and must be requested separately.</div></div>
           </div>
+        </section>
+      </div>
+
+      <div id="page-incident" class="view" role="tabpanel" aria-labelledby="nav-incident" hidden>
+        <section class="panel review-panel" aria-labelledby="incident-title">
+          <div class="panel-head"><h2 id="incident-title">Incident</h2><span id="incident-count" class="small">Nothing linked yet</span></div>
+          <div class="legend" aria-label="Legend"><span><i class="dot seed"></i>Confirmed starting point: your confirmation, not a Jev score</span><span><i class="dot related"></i>Linked by Jev: relatedness, not a malware verdict</span><span><i class="dot review"></i>Review: within 0.05 of the 0.8 threshold</span></div>
+          <div class="table-wrap"><table class="incident-table"><thead><tr><th>Since start</th><th>Process or entity</th><th>Joined through</th><th>Jev</th></tr></thead><tbody id="incident-body"></tbody></table></div>
+          <div id="incident-empty" class="empty">No incident yet. Load logs, choose the starting point and analyze with Jev.</div>
+          <p class="footnote">Processes in the order they started; accounts, hosts, addresses and domains when they joined. ×N: the same process repeated N times (same program, command line and parent), folded into one row.</p>
         </section>
       </div>
 
@@ -125,9 +142,9 @@
         <section class="panel review-panel" aria-labelledby="timeline-title">
           <div class="panel-head"><h2 id="timeline-title">Event timeline</h2><span id="count" class="small">0 linked events</span></div>
           <div id="timeline-banner" class="enrichment" hidden></div>
-          <div class="legend" aria-label="Legend"><span><i class="dot seed"></i>Confirmed seed: your confirmation, not a Jev score</span><span><i class="dot related"></i>Jev-linked execution: relatedness, not a malware verdict</span><span><i class="dot context"></i>Same process: exact host and entity match, not Jev-scored</span></div>
+          <div class="legend" aria-label="Legend"><span><i class="dot seed"></i>Starting point: your confirmation, not a Jev score</span><span><i class="dot related"></i>Joined the incident: Jev's relatedness, not a malware verdict</span><span><i class="dot context"></i>Activity of a linked process: exact match, not Jev-scored</span></div>
           <div class="review-content"><div id="timeline" class="timeline"><div class="empty">No linked events yet. Import source events, confirm a starting execution and analyze with Jev to build this sequence.</div></div></div>
-          <p class="footnote">Timestamps are shown as supplied; valid times are normalized only for ordering.</p>
+          <p class="footnote">The same activity repeated without any change (a beacon, a brute force, a relaunch) is one row with how many times, until when and how often.</p>
         </section>
       </div>
 
@@ -152,7 +169,7 @@
       </div>
     </main>
   </div>
-  <script src="engine.js" defer></script>
+  <script src="view.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

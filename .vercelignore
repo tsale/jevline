@@ -11,3 +11,4 @@ _site/
 __pycache__/
 *.pyc
 .vercel/
+node_modules/

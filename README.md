@@ -1,215 +1,155 @@
 # Jevline
 
-*Jev incident timelines: one confirmed process in, the whole incident out.*
+*One confirmed starting point in, the whole incident out.*
 
-**Start from one process you know is malicious. Get back the incident.**
+**Start from one process, address, account or host you know is malicious. Get back the incident.**
 
-**[Try it in your browser →](https://jev-incident-timeline.vercel.app/)** · [Run it locally](#quick-start)
+**[Try it in your browser →](https://jev-incident-timeline.vercel.app/)** · [Command line](#command-line)
 
 <p align="center">
   <img src="docs/how-it-works.svg" alt="Three steps: a telemetry export with one confirmed-malicious process; Jev asks of every other process whether it belongs to the same incident; the result is a timeline of only the linked activity." width="100%">
 </p>
 
-Once an analyst confirms one malicious process, the next question is always *what else is part of this?* This proof of concept puts that question to [Jev](https://docs.typesafe.ai/), TypeSafe's structured-decision model, one process at a time, and turns the answers into an incident timeline you can review.
+Once an analyst confirms one malicious process, the next question is always *what else is part of this?*
 
-It comes as a web portal you can use as a website or run locally, and a command-line script. Nothing to install: the website runs in your browser, and the local version uses only the Python standard library.
+Jevline follows every link the telemetry records out of it:
+- **between processes:** children, code injection, files dropped and then run, persistence;
+- **to the wider environment:** network contacts, logons, web requests.
+
+It then asks [Jev](https://docs.typesafe.ai/), TypeSafe's structured-decision model, about each process, account, host, address or domain those links reach. What Jev links is followed further, round by round, until nothing new joins. The result is the incident, a timeline of what it did, and how each part joined.
 
 > [!NOTE]
-> This is an experimental proof of concept, not a validated detector. A Jev score measures **relatedness to the incident**, not whether a process is malicious. Every result needs analyst review.
+> Experimental, not a validated detector. A Jev score measures **relatedness to the incident**, not whether something is malicious. Every result needs analyst review.
+
+## Results on a real intrusion
+
+Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.exe`) led to credential theft, Cobalt Strike and several waves of payloads. Each run started from `2.8.exe` alone. It was scored against the analyst's attack chain: the 41 processes that followed, up to September 24.
+
+| Logs analyzed | Volume | Decisions by | Link threshold | Attack-chain processes found | Wrong decisions | Time | Cost |
+|---|---:|---|:---:|:---:|:---:|---:|---:|
+| Elastic Defend (EDR) | 705,017 records · 1.3 GB | **Jev** | 0.8 | **33 of 41** | 1 | **10 s** | **$0.03** |
+| Windows event logs | 310,942 records · 1.0 GB | **Jev** | 0.8 | **37 of 41** | **0** | **6 s** | **$0.03** |
+| Both together | 1,015,959 records · 2.3 GB | **Jev** | 0.8 | **40 of 41** | 1 | **21 s** | **$0.11** |
+| Both together | 1,015,959 records · 2.3 GB | GLM 5.3 Flash, in Jev's place | 0.8 | 41 of 41 | 8 | 32.6 min | $1.06 |
+
+- **Same engine, same questions, a different model.** In the last row, GLM 5.3 Flash answered the questions Jev answers.
+  - **Time:** 94 times longer. GLM reasons before each answer and took 9 s per question (median), against Jev's 0.08 s.
+  - **Cost:** 10 times more.
+  - **Accuracy:** it found one more attack-chain process, and brought in 8 processes the attack chain doesn't list, such as `cmd.exe`, `whoami.exe` and `nltest.exe` started by the injected `explorer.exe`.
+- **Each source sees part of the attack.** The EDR export doesn't record four of the injections; the Windows logs miss two browser steps and two launches of the implant, which Jev scored 0.65 to 0.77. Together they find 40 of 41. The one miss, `FnHotkeyUtility.exe` (9644), scored 0.78, just under the 0.8 threshold, and is marked for review.
+- **Questions grow with the incident, not the logs:** 337 to 1,123 Jev requests for more than 25,000 process starts.
+
+**How to read it.**
+- **Link threshold:** a candidate joins the incident when the model's probability that it belongs is 0.8 or higher (the default, `--threshold`). Answers within 0.05 of it are marked for review.
+- **Wrong decisions:** processes linked into the incident before September 24 that the analyst's chain doesn't list.
+- **Time:** from opening the files to the finished incident, including 4 to 8 s of reading and linking, with 8 requests in flight.
+- **Cost:** Jev at TypeSafe's published $42 per billion input tokens; GLM 5.3 Flash at OpenRouter's list price ($0.15 per million input tokens, $0.50 per million output).
+- **The incident is larger than the scored window.** It also has the C2 and Telegram addresses, generated malware domains, and the activity after September 24, such as hundreds of relaunches of a beacon.
+
+Reproduce with [`engine/bench/compare.ts`](engine/bench/compare.ts).
+
+## Any logs. No schema, no pre-mapping.
+
+Jevline doesn't expect a specific schema, and there's nothing to map before you start. Give it whatever your tools export, as one file or several:
+
+- **Any format.** JSON, NDJSON, CSV/TSV or plain text, detected from the first line.
+- **Any source.** Windows event logs (Sysmon, Security, System) and ECS data such as Elastic Defend are read with built-in rules. Logs from anything else are understood by asking Jev what each kind of event is and what its fields hold. Jev answers two small questions per event type (not per record), and the answer is remembered for next time. Examples are Microsoft Defender for Endpoint, CrowdStrike Falcon, a SIEM export, authentication, firewall or web server logs, and your own JSON or CSV.
+- **Several sources at once.** The same process seen by Sysmon and by an EDR becomes one process, and a record that appears in two exports counts once.
+- **Logs without processes count too.** Authentication, firewall, proxy and web logs bring in the accounts, hosts, addresses and domains the attacker went through.
+
+Tested this way: the same incident as Sysmon, Defender for Endpoint (five Advanced Hunting tables) and CrowdStrike Falcon FDR events gives the same result. So does an intrusion seen only through a JSON authentication log, CSV firewall flows and a web access log. The engine had no rules for any of those formats.
 
 ## Two ways to use it
 
-| | **Website** | **Local portal** |
+| | **Website** | **Command line** |
 |---|---|---|
-| Start | Open **[jev-incident-timeline.vercel.app](https://jev-incident-timeline.vercel.app/)** | `python3 web_app.py` (see [Quick start](#quick-start)) |
-| Jev (TypeSafe) | Our **demo key** on the bundled example, or **your own key** for your files | Your key, saved in `.env` on your machine |
-| OpenRouter (optional) | Your key, typed into the page | Your key, in `.env` |
-| Where data goes | Jev requests go through the site's relay to TypeSafe; narratives go straight from your browser to OpenRouter | From your machine straight to both providers |
-| Evidence | **Download run (JSON)** | Private bundle in `.local-runs/` |
+| Start | Open **[jev-incident-timeline.vercel.app](https://jev-incident-timeline.vercel.app/)** | `node engine/src/cli.ts analyze …` (Node.js 22.18+, nothing to install) |
+| Where the analysis runs | Our free key: on our server, up to 2 MB, nothing kept. Your own key: in your browser, any size | On your machine, on up to 8 cores |
+| Jev (TypeSafe) | **Our free key** on up to 2 MB of your logs, or **your own key** with no limit | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
+| Narrative (optional) | Your OpenRouter key, typed into the page | |
+| Results | Incident, timeline, execution chain and evidence table; download the report and every Jev request | The incident table; `--out` writes the report and every Jev request |
 
-**How the website handles keys and data.** Browsers can't call TypeSafe's API directly (it doesn't allow cross-site requests), so the website runs the analysis in your browser and sends each Jev request through a small relay on the same site, [`api/jev.js`](api/jev.js), which forwards it to TypeSafe unchanged.
+### The website
 
-- **Demo key:** our TypeSafe key, stored as a server secret, works only on the bundled lab example. The relay rejects any request containing other data.
-- **Your own key:** it travels with each request through the relay to TypeSafe and is never stored or logged. Choose this to analyze your own files.
+1. Drop in your log files, or click **Load bundled lab example**. The example is also on GitHub: [`examples/malicious_events.json`](examples/malicious_events.json).
+2. Pick the **starting point**, the process you've confirmed as malicious, from the process starts in your logs. Or type an address, domain, account or host. Add a sentence of **analyst context**.
+3. Click **Analyze with Jev**.
+
+The **Incident** tab lists every member: how it joined, Jev's probability, and a **review** marker within 0.05 of the 0.8 threshold. The **Event timeline**, **Execution chain** and **Evidence table** show what the incident did. The same activity repeated without change (a beacon, a brute force, a relaunch) is one row with a count, until when and how often. **Request narrative** optionally drafts titles, ATT&CK mapping and a written chain with an OpenRouter model, labelled as an AI draft.
+
+**How the website handles keys and data.**
+- **With our free key,** the logs you load (up to 2 MB) are sent to our server, analyzed in memory and discarded when the result comes back. Nothing is stored, and their contents aren't logged. Our key only ever answers questions the server builds from those logs, so it can't be used for anything else.
+- **With your own TypeSafe key,** your files are read and linked in your browser and never uploaded, at any size. Only a short summary of each candidate goes through a small relay on the same site, [`api/jev.js`](api/jev.js), to TypeSafe (browsers can't call TypeSafe directly). The key travels with each request and is never stored or logged.
 - **OpenRouter:** your key goes straight from your browser to `openrouter.ai`, never through us.
-- **Your files:** they stay in your browser. Only the fields Jev needs leave it, one request per process.
 
-The page's security policy only allows connections to its own site and `openrouter.ai`, so you can check every request in your browser's developer tools. The providers receive the telemetry you analyze, under their own terms.
+The page's security policy only allows connections to its own site and `openrouter.ai`, so you can check every request in your browser's developer tools.
 
-## Quick start
-
-You need **Python 3.9 or newer** (the `python3` that ships with macOS works) and a **TypeSafe API key** ([TypeSafe Quick Start](https://docs.typesafe.ai/introduction/quickstart)).
+### Command line
 
 ```bash
-git clone https://github.com/tsale/jevline.git
-cd jevline
-python3 web_app.py --setup-keys   # paste your key; input is hidden and saved to .env
-python3 web_app.py                # start the portal
+git clone https://github.com/tsale/jevline.git && cd jevline
+cp .env.example .env && chmod 600 .env      # add TYPESAFE_API_KEY
+node engine/src/cli.ts inspect export.ndjson --find 2.8.exe
+node engine/src/cli.ts analyze export.ndjson more-logs.csv --seed name:2.8.exe \
+  --context "Analyst-confirmed 2.8.exe execution on CLA-WS-214." --out runs/2.8
 ```
 
-Open **http://127.0.0.1:8765** and:
-
-1. Click **Load bundled malicious-events example** (or drop in your own JSON export).
-2. Check the **Starting execution**, the process you have confirmed as malicious, and add a sentence of **Analyst context**.
-3. Click **Analyze with Jev**. The **Event timeline** opens when the answers are in.
-
-Press `Ctrl+C` to stop. Run `python3 web_app.py` again whenever you need it; your keys and recent runs are kept.
-
-## Adding your API keys
-
-| Key | Needed for | Sent to |
-|---|---|---|
-| `TYPESAFE_API_KEY` | **Analyze with Jev** (required) | `api.typesafe.ai` |
-| `OPENROUTER_API_KEY` | **Request narrative** (optional AI-drafted titles and summaries) | `openrouter.ai` |
-
-Choose one of these ways to add them:
-
-- **Guided (recommended):** `python3 web_app.py --setup-keys` asks for each key with hidden input and writes them to `.env` with private permissions. Run it again to change a key; press Enter to keep the current one.
-- **By hand:** copy the template, make it private, then fill in the values:
-
-  ```bash
-  cp .env.example .env
-  chmod 600 .env
-  ```
-
-- **Environment variables:** if `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` is already set in the server's environment (for example by a secret manager), it takes precedence over `.env`.
-
-The server reads the keys on every request, so after you edit `.env`, click **Refresh** in the portal; there's no need to restart. Keys stay on the server: the browser only ever sees "ready" or "missing". On macOS and Linux the server refuses a key file that other users can read, and the portal tells you the exact `chmod` to run.
-
-## Using the portal
-
-| Tab | What it does |
-|---|---|
-| **Source & analysis** | Import a JSON export, choose the confirmed starting execution (the *seed*), add context, and run **Analyze with Jev**. Importing never leaves your browser. |
-| **Event timeline** | One compact row per linked event in time order, with a count such as "21 linked of 100 source events". |
-| **Execution chain** | The process-to-process flow and what each process did, as Markdown you can copy. It's built from Jev's results alone until you request a narrative, then the AI-drafted version (with an ATT&CK summary) replaces it; one click switches back. |
-| **Evidence table** | The incident rows in an 11-column, colour-coded table: Timestamp, Host, Phase, Title, Description, Tools, TTPs, Command Line, Indicator, Type, Pyramid. |
-
-Every results tab says which kind of results it shows. **Jev results only, no AI enrichment** means every row, score and link comes straight from Jev and exact process matches. After a narrative it reads **AI-enriched draft** and names the model.
-
-How to read the labels:
-
-| Label | Meaning |
-|---|---|
-| `Seed · 100%` (amber) | The seed. This is your confirmation, not a Jev prediction. |
-| `Jev 94%` (blue) | Jev's probability that this execution belongs to the same incident. Linked at 0.8 or above. Relatedness, not a malware verdict. |
-| `Same process` (teal) | A file, network or registry event from the same host and process as a linked execution. An exact identity match, not a Jev score. |
-
-**Request narrative** is an optional second step. It sends the linked events (50 at most), each marked with how it's linked, to OpenRouter. The model defaults to `deepseek/deepseek-v4.1-flash`, and you can enter any OpenRouter model ID in **Narrative model**. The draft adds:
-
-- **Titles and summaries** for each row.
-- **ATT&CK mapping:** a MITRE ATT&CK tactic (shown in Phase) and up to three technique IDs (shown in TTPs, linked to attack.mitre.org). Only the 14 Enterprise tactics and `T1234` / `T1234.001`-style IDs are accepted; anything else is dropped rather than guessed. Without a narrative, Phase shows the observed event type and TTPs stay empty, because Jev doesn't map techniques.
-- **An execution chain** in Markdown with an ATT&CK summary table. Citations of unknown event IDs are replaced with `[unknown event]`.
-
-The narrative is a draft for you to verify, never a verdict.
-
-If an analysis fails partway (for example, during a provider outage), a **Resume** button reuses every Jev answer you already paid for and asks only the remaining questions. Resume points are saved on disk, so they survive a restart.
-
-### Portal options
-
-| Option | Default | Purpose |
-|---|---|---|
-| `--port` | `8765` | Port on `127.0.0.1` |
-| `--setup-keys` | | Prompt for the API keys, save them to `.env`, and exit |
-| `--env-file` | `.env` | Where keys are read from |
-| `--run-root` | `.local-runs/` | Private evidence bundle for each analysis |
-| `--retention-days` | `14` | Delete web runs this many days after their last write |
-| `--replit-preview` | | Serve through a Replit workspace preview, with an access code printed to the console for provider calls |
-
-## Command line
-
-The same analysis runs without the portal:
-
-```bash
-python3 jev_incident.py examples/malicious_events.json \
-  --seed-id VvT8xKABOYkemEz9sgQR \
-  --description "Analyst-confirmed 2.8.exe execution on CLA-WS-214." \
-  --run-dir runs/first-run
-```
-
-It prints one line per execution with the decision, probability and the evidence category Jev selected (`lineage`, `interaction`, `artifact`, `user_host_time` or `no_link`; Jev chooses a category rather than writing prose). It reads the key from the environment or `.env`.
-
-- `--run-dir DIR` writes an auditable bundle: `summary.json` (time, calls, tokens, input hash), `attempts.jsonl` (every call, including retried failures), `decisions.json` and `evidence/`.
-- `--resume-run OLD --run-dir NEW` continues a failed run, reusing only answers whose exact request matches.
-- `--threshold` (default `0.8`), `--model` (default `jev-1.13.0`) and `--output decisions.json` are also available.
+`inspect` reads the logs and reports what it found without calling Jev. `analyze` runs the investigation and prints the incident. The seed can be a process (`name:<image>`, an event ID, or `guid:<ID>` with any source's process ID) or `ip:`, `domain:`, `user:` or `host:`. Every option, and how the engine works in detail, is in the [engine README](engine/README.md).
 
 ## How it works
 
-For each other process start in the export, in time order, the tool sends Jev one request containing:
-
-- the **seed** and your description,
-- the **candidate** process,
-- up to six **recently linked** executions, so the evidence builds up as links are found,
-- up to eight **nearby events** from the same host (same process lineage, or within 10 minutes).
-
-Jev returns a probability that the candidate is related, plus an evidence category. Candidates at 0.8 or above are linked and become context for later questions. If the first pass found any new links, the remaining candidates are asked once more with the expanded context.
-
-[ARCHITECTURE.md](ARCHITECTURE.md) covers the exact request shape, field mapping, evidence files, resume rules, measured results and limitations in detail.
-
-## Input format
-
-The input is a JSON array of events, or `{"events": [...]}`. ECS documents and Elasticsearch hits are supported, either with `_source` or with the dotted `fields` format. Each event needs a unique `id`, `_id` or `event.id`. The seed must be a process start. The portal accepts up to 500 events and 2 MiB.
-
-A minimal input looks like this (see [tests/fixtures/synthetic.json](tests/fixtures/synthetic.json)):
-
-```json
-{"events": [
-  {"id": "seed", "@timestamp": "2026-09-21T17:18:50Z", "kind": "execution", "host": "WS-01",
-   "process": {"name": "powershell.exe", "pid": 400, "entity_id": "proc-seed"}},
-  {"id": "child", "@timestamp": "2026-09-21T17:18:52Z", "kind": "execution", "host": "WS-01",
-   "process": {"name": "stage.exe", "pid": 410, "entity_id": "proc-child", "parent": {"entity_id": "proc-seed"}}}
-]}
+```
+log files ─▶ read ─▶ normalize ─▶ processes ─▶ links ─▶ rounds of Jev questions ─▶ incident + timeline
 ```
 
-### The bundled example
+1. **Read and normalize** every record into one model, in any format and schema (above).
+2. **Identify processes** across sources and PID reuse.
+3. **Link** them: lineage, injection, dropped and run files, loaded DLLs, named pipes, persistence. Also link the accounts, hosts, addresses and domains of network, logon and web activity.
+4. **Ask Jev**, round by round from the starting point, about everything the incident's links reach.
+   - Only what a member did after it joined can carry the incident further.
+   - Each question is one candidate with its links and activity.
+   - Identical candidates share one question, and common infrastructure is recognised by how widely it is used.
+5. **Report** the incident and its timeline with repeats folded.
 
-[examples/malicious_events.json](examples/malicious_events.json) holds 100 Elasticsearch (Sysmon) records from a lab detonation of `2.8.exe` on host `CLA-WS-214`. The seed is `VvT8xKABOYkemEz9sgQR`. The export covers about 11 seconds, so it doesn't include the incident's later steps. SHA-256: `d9b1c28d03053099878a8816333b0ca31b0b3abc460a473fe9b72714a1dd39b4`.
+Jev is asked about what the telemetry connects to the incident, not about every process in the logs. So the number of questions grows with the incident, not with the logs: 337 to 1,123 requests for six days of one host's telemetry. The same telemetry gives Jev byte-identical requests, so answers can be cached and runs replayed exactly. Details: [engine/README.md](engine/README.md); architecture of the website and relay: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## What leaves your machine
 
-This applies to both the website and the local portal.
-
 | Action | What is sent | Where |
 |---|---|---|
-| Open the portal or import a file | Nothing | |
-| **Analyze with Jev** | For each candidate: selected fields only (IDs, time, host, user, process name, path, command line, PIDs, entity IDs, hashes, file and destination fields) of the seed, the candidate and its context events | TypeSafe (on the website, via the site's relay) |
-| **Request narrative** | The seed, the linked executions and their same-process events (50 at most) | OpenRouter (directly) |
+| Load logs | With our free key: the files (up to 2 MB), processed in memory and not kept. With your own key: nothing | Our server |
+| **Analyze with Jev** | For each candidate, a summary: names, paths, command lines, PIDs, hashes and users of the starting point, the candidate and the incident members it links to; the links themselves; samples of what the candidate did. Your analyst context. | TypeSafe (from our server with our free key; through the site's relay with your own key) |
+| Logs from an unknown schema | Field names with a few example values per field, once per event type | TypeSafe |
+| **Request narrative** | At most 60 timeline rows of the incident | OpenRouter (directly) |
 
-Only analyze telemetry you're allowed to share with these providers. On the website, your keys live in the page's memory unless you tick **Remember on this device** (then in that browser's local storage; **Forget keys** removes them), and the relay keeps nothing. In the local portal, each analysis writes an evidence bundle to `.local-runs/`, which is private, git-ignored and deleted 14 days after its last write. The server listens on `127.0.0.1` only, rejects cross-origin requests and never sends keys to the browser. It's a single-user local tool, so don't expose it to a network.
+Only analyze telemetry you're allowed to share with these providers.
 
 ## Limitations
 
-- **No accuracy claim.** The tests mock both providers, and the 0.8 threshold is an experimental cut-off. Below the threshold means "not enough evidence to link", not "benign".
-- **Local JSON only.** There is no live Elasticsearch or SIEM query. Context selection scans the whole input for each candidate, which is fine for hundreds of events but not for millions.
-- **Context is not proof.** Nearby events are hints for Jev, and PIDs can be reused. The CLI doesn't require candidates to come after the seed, so prepare the time window you want.
+- **Validated on one incident.** The scores above are one host and one analyst's attack chain. Jev's answer to an identical question varies by a few hundredths, so decisions near the threshold (marked **review**) can go either way on a fresh run, and a linked hub can bring in more.
+- **Only what the telemetry records.** Without Sysmon 8/10 or EDR API events there are no injection links; with process creation alone, only lineage.
+- **Not yet linked:** remote execution across hosts (PsExec, WMI, WinRM), and an account to the processes it ran. Free-form syslog messages are only lightly understood.
+- **Browser memory.** The website reads files on one core, in your tab's memory: the 1.2 GB EDR export took 12.6 s and 1.5 GB. Use the command line for larger exports.
 
 ## Development
 
 ```bash
-python3 -m unittest -v test_jev_incident.py test_web_app.py
-node ui/test_engine.js && node ui/test_app.js && node ui/test_access.js && node ui/test_browser.js && node tests/test_relay.js
+npm test                        # relay, build, website and engine tests (offline; providers mocked)
+npm run preview                 # build the site and serve it with the relay at http://127.0.0.1:8000
 ```
 
-All tests run offline with mocked providers. The JavaScript tests need Node.js; the app itself doesn't. `ui/engine.js` is a port of `jev_incident.py`, and `ui/test_engine.js` checks that it sends Jev byte-for-byte the same requests on three fixtures. After an intentional change to the Python engine, regenerate the reference with `python3 -c "import test_jev_incident as t; t.write_golden()"` and update the port until both suites pass.
+The engine needs `npm ci` in `engine/` once, for type checking only (`npm --prefix engine run typecheck`). The website is `site/index.html`, `ui/` and the engine's browser modules, built into `_site/` by `node scripts/build_site.js`, plus the relay function in `api/`. `vercel.json` sets the build and the security headers.
 
-### The website on Vercel
-
-The website is `site/index.html` plus the shared `ui/` files, built into `_site/` by `node scripts/build_site.js`, and the relay function in `api/`. `vercel.json` sets the build and the security headers. To preview it locally with the relay:
-
-```bash
-node scripts/build_site.js
-node scripts/serve_site.js        # http://127.0.0.1:8000
-```
-
-To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`), then add the demo key as a secret: `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. Set a spending limit on that TypeSafe key: the relay rate-limits each visitor and caches repeated demo requests, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/jev` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
+To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`). Then add the site's free key as a secret with `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. The server analysis limits each visitor and all visitors together, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/analyze` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
 
 | Path | Contents |
 |---|---|
-| `jev_incident.py` | Normalization, context selection, Jev requests, evidence bundles, CLI |
-| `web_app.py` | Jevline server: static UI, `/api/analyze`, `/api/narrate`, key handling, retention |
-| `ui/` | Shared portal JavaScript and CSS, the local portal page, and `engine.js` (the browser port of the engine) |
-| `site/index.html` | The website page: Jev access choice, key panel, privacy notice, connection policy |
-| `api/jev.js`, `api/_relay.js` | The website's Jev relay (Vercel function): demo key limited to the bundled example, visitors' keys forwarded |
-| `scripts/build_site.js`, `scripts/serve_site.js`, `vercel.json` | Website build, local preview with the relay, Vercel settings |
-| `examples/`, `tests/fixtures/` | Bundled lab export; synthetic and edge-case fixtures; the engine parity reference |
+| `engine/` | The engine: TypeScript, no runtime dependencies; command line, tests and benchmarks ([README](engine/README.md)) |
+| `site/index.html`, `ui/` | The website page and its scripts and styles |
+| `api/analyze.js`, `api/_analyze.js` | Server analysis with our free key: up to 2 MB of uploaded logs, nothing kept (Vercel function) |
+| `api/jev.js`, `api/_relay.js` | The Jev relay for visitors' own TypeSafe keys (Vercel function) |
+| `scripts/` | Website build and local preview |
+| `examples/` | The bundled lab example: 100 Sysmon and Security records from the detonation of `2.8.exe` on CLA-WS-214 |
 | `docs/` | README illustration |
+
+The original Python engine and local portal are in the git history up to the tag `python-engine-final`.

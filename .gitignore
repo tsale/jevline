@@ -18,6 +18,7 @@ secrets/
 *.p12
 *.pfx
 _site/
+node_modules/
 
 # AI assistant and agent tooling state: keep out of the public repository.
 .claude/

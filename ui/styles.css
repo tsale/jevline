@@ -86,9 +86,9 @@ h3 { font-size: 15px; line-height: 1.35; font-weight: 600; color: var(--text); }
 .field-grid { display: grid; gap: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
 label { display: block; color: var(--text); font-size: 14px; font-weight: 600; }
 .field-hint { display: block; margin-top: 2px; font-weight: 400; }
-input[type="text"], input[type="password"], select, textarea { display: block; width: 100%; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--inset); color: var(--text); font-size: 14px; font-weight: 400; outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
-input[type="text"]:hover, input[type="password"]:hover, select:hover:not(:disabled), textarea:hover { border-color: rgba(255,255,255,.24); }
-input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122,167,255,.22); }
+input[type="text"], input[type="password"], input[type="search"], select, textarea { display: block; width: 100%; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--inset); color: var(--text); font-size: 14px; font-weight: 400; outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
+input[type="text"]:hover, input[type="password"]:hover, input[type="search"]:hover:not(:disabled), select:hover:not(:disabled), textarea:hover { border-color: rgba(255,255,255,.24); }
+input[type="text"]:focus, input[type="password"]:focus, input[type="search"]:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122,167,255,.22); }
 select:disabled { color: var(--text-3); }
 textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
 textarea::placeholder { color: var(--text-3); }
@@ -101,20 +101,6 @@ textarea::placeholder { color: var(--text-3); }
 .status.error { color: var(--danger); }
 .operation-divider { height: 1px; background: var(--line); margin: 22px 0; }
 #narrate { margin-left: 22px; }
-.provider-box { margin: 16px 22px 0; padding: 12px 14px; border-radius: 6px; background: var(--inset); border: 1px solid var(--line); font-size: 13px; line-height: 1.7; color: var(--text-2); overflow-wrap: anywhere; }
-.provider-box strong { color: var(--text); font-weight: 500; font: 13px/1.6 var(--mono); }
-.provider-box .button { margin-left: 8px; }
-.provider-help { display: block; color: var(--text-3); }
-.provider-help:empty { display: none; }
-.access-box { margin-top: 22px; padding: 18px 22px 0; border-top: 1px solid var(--line); }
-.access-box label { display: block; font-size: 13px; color: var(--text-2); font-weight: 600; }
-.access-box input { margin-top: 6px; font: 13px/1.5 var(--mono); }
-.access-box .button { margin-top: 10px; }
-.access-box .small { display: block; margin-top: 8px; color: var(--text-3); }
-.backend-field { margin-top: 22px; padding: 18px 22px 22px; border-top: 1px solid var(--line); }
-.backend-field label { font-size: 13px; color: var(--text-2); font-weight: 600; }
-.backend-field input { margin-top: 6px; font: 13px/1.5 var(--mono); }
-.backend-field .small { display: block; margin-top: 6px; color: var(--text-3); }
 .trust-note { margin: 16px 2px 0; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--text-2); font-size: 13px; line-height: 1.6; }
 
 /* Results */
@@ -325,8 +311,6 @@ label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--ac
   .panel-body { padding: 18px 16px 20px; }
   .action-row { padding: 18px 16px 0; }
   #narrate { margin-left: 16px; }
-  .provider-box { margin: 14px 16px 0; }
-  .backend-field { padding: 16px 16px 18px; }
   .secondary-actions { padding: 0 16px; }
   .keys-box { padding: 16px 16px 18px; }
   .repo-link { display: none; }
@@ -347,3 +331,30 @@ label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--ac
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* The new engine: loaded logs, choosing the starting point, the incident and review markers */
+.loaded-summary { margin: 0 0 18px; padding: 12px 14px; border-radius: 6px; background: var(--inset); border: 1px solid var(--line); color: var(--text-2); font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.loaded-summary strong { color: var(--text); font-weight: 600; }
+.loaded-summary .warn { display: block; margin-top: 6px; color: var(--seed); }
+select[size] { min-height: 156px; padding: 6px; font: 13px/1.6 var(--mono); }
+select[size] option { padding: 2px 6px; border-radius: 4px; }
+input[type="search"]:disabled, input[type="text"]:disabled { color: var(--text-3); }
+.dot.review { background: transparent; border: 1.5px dashed var(--seed); }
+.pill.review { border: 1px dashed rgba(242,182,97,.55); background: transparent; color: #f7cf94; font-weight: 500; }
+.repeat { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 5px; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text-2); font-size: 12px; font-weight: 600; vertical-align: 1px; }
+.repeat-line { display: block; margin-top: 6px; color: var(--text-2); font: 12.5px/1.5 var(--mono); }
+.incident-table { min-width: 760px; }
+.incident-table td { max-width: none; min-width: 0 !important; color: var(--text); }
+.incident-table td:nth-child(1) { width: 130px; white-space: nowrap; color: var(--text-2); font: 13px/1.55 var(--mono); }
+.incident-table td:nth-child(3) { color: var(--text-2); font-size: 13.5px; }
+.incident-table td:nth-child(4) { width: 130px; white-space: nowrap; }
+.member-name { color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
+.member-meta { display: block; margin-top: 2px; color: var(--text-3); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+#incident-empty { padding: 28px 24px; border-top: 1px solid var(--line); }
+.repo-link { white-space: nowrap; }
+/* Five tabs: the tab bar shrinks and scrolls rather than pushing into the links beside it. */
+.page-nav { overflow-x: auto; scrollbar-width: none; }
+.page-nav::-webkit-scrollbar { display: none; }
+.page-nav button { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 1100px) { .topbar-inner { gap: 20px; } .page-nav button { padding: 0 9px; } }
+.example-actions { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }

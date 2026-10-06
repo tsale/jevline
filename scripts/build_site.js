@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Assemble the Jevline website into _site/. Vercel serves it together with the Jev relay in api/.
+// The engine runs in the visitor's browser: its TypeScript (engine/src) is published as JavaScript
+// modules by erasing the type annotations, so the site needs no compiler and no dependencies.
 //
 //   node scripts/build_site.js            # writes _site/
 //   node scripts/serve_site.js            # local preview with the relay: http://127.0.0.1:8000
@@ -7,8 +9,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
+const {stripTypeScriptTypes} = require('node:module');
 
 const ROOT = path.resolve(__dirname, '..');
+const ENGINE = path.join(ROOT, 'engine', 'src');
+// The page's own scripts, and the engine thread it starts (with every engine module that one imports).
+const UI_FILES = ['app.js', 'view.js', 'styles.css'];
+const ENGINE_ENTRY = 'web-worker.ts';
 const DEFAULT_REPO = 'https://github.com/tsale/jevline';
 
 // The repository the site is built from (Vercel, GitHub Actions, or the local git remote).
@@ -59,20 +66,59 @@ function starCountHtml(repoUrl, count) {
   return `<a class="github-star-count" href="${escapeHtml(repoUrl)}/stargazers" target="_blank" rel="noopener noreferrer" aria-label="${label}">${count.toLocaleString('en-US')}</a>`;
 }
 
+/**
+ * The engine modules the browser needs, as JavaScript: each TypeScript file reachable from the entry, with
+ * its types erased (the engine uses erasable syntax only) and its './x.ts' imports pointing at './x.js'.
+ * A module that imports from Node would not run in a browser, so it fails the build.
+ */
+function engineModules(entry = ENGINE_ENTRY) {
+  if (typeof stripTypeScriptTypes !== 'function') throw new Error(`Node.js ${process.version} cannot strip TypeScript types; use Node.js 22.18 or newer`);
+  // Node marks type stripping experimental and says so on stderr; that one notice is expected here.
+  const emitWarning = process.emitWarning;
+  process.emitWarning = (warning, ...rest) => {
+    if (!/stripTypeScriptTypes/.test(String(warning))) emitWarning.call(process, warning, ...rest);
+  };
+  try { return collectModules(entry); } finally { process.emitWarning = emitWarning; }
+}
+
+function collectModules(entry) {
+  const modules = new Map(), queue = [entry];
+  while (queue.length) {
+    const file = queue.pop();
+    if (modules.has(file)) continue;
+    const source = fs.readFileSync(path.join(ENGINE, file), 'utf8');
+    const js = stripTypeScriptTypes(source, {mode: 'strip'})
+      .replace(/(\b(?:import|export)\b[^'";]*?\bfrom\s*|\bimport\s*\(\s*)'(\.\/[^']+)\.ts'/g, (_, head, spec) => {
+        queue.push(`${spec.slice(2)}.ts`);
+        return `${head}'${spec}.js'`;
+      });
+    const node = /\bfrom\s*'node:|\bimport\s*\(\s*'node:/.exec(js);
+    if (node) throw new Error(`engine/src/${file} imports a Node module, so it cannot run in the browser`);
+    modules.set(file, js);
+  }
+  return modules;
+}
+
 function build(out, repoUrl, stars = null) {
   fs.rmSync(out, {recursive: true, force: true});
   fs.mkdirSync(path.join(out, 'examples'), {recursive: true});
+  fs.mkdirSync(path.join(out, 'engine'), {recursive: true});
   const page = fs.readFileSync(path.join(ROOT, 'site', 'index.html'), 'utf8');
   const filled = page
     .replaceAll('{{STAR_COUNT}}', starCountHtml(repoUrl, stars))
     .replaceAll('{{REPO_NAME}}', escapeHtml(repositorySlug(repoUrl) || repoUrl))
     .replaceAll('{{REPO_URL}}', escapeHtml(repoUrl));
   fs.writeFileSync(path.join(out, 'index.html'), filled);
-  for (const name of ['app.js', 'engine.js', 'styles.css']) fs.copyFileSync(path.join(ROOT, 'ui', name), path.join(out, name));
-  // Loaded as a script, so the page's connection policy needs nothing extra for it.
-  const example = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'malicious_events.json'), 'utf8'));
-  fs.writeFileSync(path.join(out, 'examples', 'malicious_events.js'), `window.CASEBENCH_EXAMPLE = ${JSON.stringify(example)};\n`);
-  return ['index.html', 'app.js', 'engine.js', 'styles.css', 'examples/malicious_events.js'];
+  const files = ['index.html'];
+  for (const name of UI_FILES) { fs.copyFileSync(path.join(ROOT, 'ui', name), path.join(out, name)); files.push(name); }
+  for (const [file, js] of engineModules()) {
+    const name = `engine/${file.replace(/\.ts$/, '.js')}`;
+    fs.writeFileSync(path.join(out, name), js);
+    files.push(name);
+  }
+  fs.copyFileSync(path.join(ROOT, 'examples', 'malicious_events.json'), path.join(out, 'examples', 'malicious_events.json'));
+  files.push('examples/malicious_events.json');
+  return files;
 }
 
 async function main(argv) {
@@ -98,4 +144,4 @@ async function main(argv) {
 if (require.main === module) {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`build_site: ${error.message}\n`); process.exit(1); });
 }
-module.exports = {build, repositoryUrl, repositorySlug, starCountHtml};
+module.exports = {build, engineModules, repositoryUrl, repositorySlug, starCountHtml};
