@@ -25,12 +25,12 @@ It then asks [Jev](https://docs.typesafe.ai/), TypeSafe's structured-decision mo
 
 Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.exe`) led to credential theft, Cobalt Strike and several waves of payloads. Each run started from `2.8.exe` alone. It was scored against the analyst's attack chain: the 41 processes that followed, up to September 24.
 
-| Logs analyzed | Decisions by | Attack-chain processes found | Other processes included | Time | Cost |
-|---|---|:---:|:---:|---:|---:|
-| Elastic Defend (EDR): 705,017 records | **Jev** | **33 of 41** | 1 | **10 s** | **$0.03** |
-| Windows event logs: 310,942 records | **Jev** | **37 of 41** | **0** | **6 s** | **$0.03** |
-| Both together: 1,015,959 records | **Jev** | **40 of 41** | 1 | **21 s** | **$0.11** |
-| Both together: 1,015,959 records | GLM 5.3 Flash, in Jev's place | 41 of 41 | 8 | 32.6 min | $1.06 |
+| Logs analyzed | Volume | Decisions by | Link threshold | Attack-chain processes found | Other processes included | Time | Cost |
+|---|---:|---|:---:|:---:|:---:|---:|---:|
+| Elastic Defend (EDR) | 705,017 records · 1.3 GB | **Jev** | 0.8 | **33 of 41** | 1 | **10 s** | **$0.03** |
+| Windows event logs | 310,942 records · 1.0 GB | **Jev** | 0.8 | **37 of 41** | **0** | **6 s** | **$0.03** |
+| Both together | 1,015,959 records · 2.3 GB | **Jev** | 0.8 | **40 of 41** | 1 | **21 s** | **$0.11** |
+| Both together | 1,015,959 records · 2.3 GB | GLM 5.3 Flash, in Jev's place | 0.8 | 41 of 41 | 8 | 32.6 min | $1.06 |
 
 - **Same engine, same questions, a different model.** In the last row, GLM 5.3 Flash answered the questions Jev answers.
   - **Time:** 94 times longer. GLM reasons before each answer and took 9 s per question (median), against Jev's 0.08 s.
@@ -40,6 +40,7 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 - **Questions grow with the incident, not the logs:** 337 to 1,123 Jev requests for more than 25,000 process starts.
 
 **How to read it.**
+- **Link threshold:** a candidate joins the incident when the model's probability that it belongs is 0.8 or higher (the default, `--threshold`). Answers within 0.05 of it are marked for review.
 - **Other processes included:** processes in the incident before September 24 that the analyst's chain doesn't list.
 - **Time:** from opening the files to the finished incident, including 4 to 8 s of reading and linking, with 8 requests in flight.
 - **Cost:** Jev at TypeSafe's published $42 per billion input tokens; GLM 5.3 Flash at OpenRouter's list price ($0.15 per million input tokens, $0.50 per million output).
