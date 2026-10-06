@@ -1,4 +1,0 @@
-{"@timestamp":"2026-09-21T17:18:50Z","event":{"category":["process"],"type":["start"]},"host":{"name":"WS-01"},"process":{"name":"powershell.exe","pid":400,"entity_id":"proc-seed"}}
-
-{"_id":"kept-id","@timestamp":"2026-09-21T17:18:52Z","event":{"category":["process"],"type":["start"]},"host":{"name":"WS-01"},"process":{"name":"stage.exe","pid":410,"entity_id":"proc-child","parent":{"entity_id":"proc-seed"}}}
-{"@timestamp":"2026-09-21T17:18:53Z","event":{"category":["file"],"type":["creation"]},"host":{"name":"WS-01"},"process":{"entity_id":"proc-child"},"file":{"path":"C:\\Temp\\a.dll"}}

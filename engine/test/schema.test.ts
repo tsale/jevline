@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {analyze, findSeed, load, unfold} from '../src/analyze.ts';
 import {JevClient, type JevResponse, type Transport} from '../src/jev.ts';
 import {standIn} from '../src/standin.ts';
+import {mappingFile} from '../src/files.ts';
 import {readText} from '../src/read.ts';
 import {fingerprint, flatten, groupKey, learn, observe, readMapping, rolesRequest, SchemaCache, shapes, timeOf, type Profiles} from '../src/schema.ts';
 import {ecs, falconFdr, mde} from './incident.ts';
@@ -80,7 +81,7 @@ interface Run { incident: string[]; schemaRequests: number; mappings: Map<string
 
 async function run(paths: string[], schemaFile?: string, transport: Transport = standIn()): Promise<Run> {
   const schemaClient = new JevClient(transport);
-  const cache = new SchemaCache(schemaFile);
+  const cache = new SchemaCache(schemaFile ? mappingFile(schemaFile) : undefined);
   const mappings = new Map<string, Record<string, string>>();
   const loaded = await load(paths.map(path => ({path, format: 'auto' as const})), {
     learn: async profiles => { const m = await learn(profiles, schemaClient, cache, 'jev-1.13.0', 'stand-in'); for (const [k, v] of m) mappings.set(k, v.roles); return m; }});

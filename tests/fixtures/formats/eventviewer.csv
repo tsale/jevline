@@ -1,3 +1,0 @@
-Level,Date and Time,Source,Event ID,Task Category
-Information,2026-09-21 17:21:26,Microsoft-Windows-Security-Auditing,4688,Process Creation,"A new process has been created."
-Information,2026-09-21 17:21:27,Microsoft-Windows-Security-Auditing,4689,Process Termination,"A process has exited."

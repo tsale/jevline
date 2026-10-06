@@ -8,7 +8,7 @@ Give it log files and something you've confirmed as malicious: a process, an IP 
 It reads hundreds of thousands of events per second. Jev makes every judgment call, but it's only asked about processes that telemetry actually connects to the incident, so the number of Jev calls grows with the size of the incident, not with the size of the logs.
 
 > [!NOTE]
-> This is the new engine (TypeScript, no runtime dependencies). It runs alongside the original Python engine and portal in the repository root, which will switch over to it in the next milestone.
+> One engine (TypeScript, no runtime dependencies) runs everywhere: the command line here, and [the website](https://jev-incident-timeline.vercel.app/), where the same code runs in your browser (see [In the browser](#in-the-browser)).
 
 ## Quick start
 
@@ -129,6 +129,18 @@ files ─▶ read ─▶ normalize ─▶ processes ─▶ links ─▶ rounds o
 
    On the CLA-WS-214 exports (Elastic Defend and Windows logs, live), 1,495 incident members become 99 rows and 21,795 events become 2,512 timeline rows. What's left is mostly distinct work, such as three PyInstaller payloads each unpacking 96 different modules.
 
+## In the browser
+
+The website runs this engine in the visitor's browser, so log files are read and linked on their device. The browser and Node use the same code apart from file access:
+
+- **One code base.** `scripts/build_site.js` publishes `src/web-worker.ts` and every module it imports as JavaScript, by erasing the type annotations (the engine uses erasable syntax only). There's no bundler, compiler or dependency. A module that imports anything from Node fails the build.
+- **Off the page's thread.** The engine runs in a Web Worker. `src/browser.ts` reads `File` objects in 8 MB chunks cut at line breaks, so a file never has to fit in one string. Each chunk goes through the same parser as one of Node's worker ranges. A CSV field quoted across two chunks makes the file be read again in one piece, as in Node.
+- **Same results.** A test reads every test format from `File` objects in chunks as small as 7 bytes and requires exactly the Node reader's events. Another runs a whole analysis with Node's globals removed.
+- **Jev through the site's relay.** Browsers can't call TypeSafe directly. `relay()` sends each request to the site's `/api/jev`, with the visitor's key or, for the bundled example only, the site's demo key.
+- **Learned schemas** are remembered in the browser's local storage. They hold field names and roles, never data.
+
+In the browser, files are parsed on one core. The browser code path, timed in Node, read and linked the 1,242 MB Elastic Defend export of CLA-WS-214 (705,017 records) in 12.6 s with 1.5 GB of memory. The command line takes about 4 s on 8 cores. Browsers may be slower, and a tab's memory limit is the practical ceiling on how much you can load at once.
+
 ## Reproducibility
 
 The same incident should give the same result whatever telemetry it arrives in, and the same input should give the same result every time.
@@ -234,13 +246,16 @@ npm test
 
 | Path | Contents |
 |---|---|
-| `src/read.ts` | Streaming and ranged reading, format detection, CSV and text parsing |
+| `src/read.ts` | Format detection, JSON, NDJSON, CSV and text parsing from any source of lines |
 | `src/normalize.ts` | The built-in sources (Windows event logs, ECS), into the canonical model (`src/model.ts`) |
 | `src/schema.ts` | Learning any other schema: grouping, value shapes, the questions Jev answers, mappings and their cache |
 | `src/identity.ts` | Process identity: GUIDs, PID lifetimes, 4688/Sysmon twins, GUIDs seen late, parents |
 | `src/links.ts`, `src/entities.ts` | Typed links between processes, and the accounts, hosts, addresses and domains of logs without processes |
 | `src/investigate.ts` | Rounds, causality, grouping, and exactly what Jev is asked |
-| `src/jev.ts`, `src/standin.ts` | TypeSafe client (retries, concurrency, cache, request log) and the offline stand-in |
-| `src/analyze.ts`, `src/worker.ts`, `src/cli.ts` | Pipeline and report, parallel parsing, command line |
+| `src/repeats.ts` | Folding repeated activity in the results |
+| `src/jev.ts`, `src/hash.ts`, `src/standin.ts` | TypeSafe client (retries, concurrency, answer cache), SHA-256 the same in Node and browsers, the offline stand-in |
+| `src/pipeline.ts` | Everything after reading: combining inputs, processes, links, the seed, the investigation and the report (Node and browser) |
+| `src/analyze.ts`, `src/worker.ts`, `src/files.ts`, `src/cli.ts` | Node only: parallel parsing on several cores, files (logs, answer cache, request log, learned schemas), command line |
+| `src/browser.ts`, `src/web-worker.ts` | Browser only: reading `File` objects in chunks, the relay transport, the website's engine thread |
 | `test/` | Unit tests and the reproducibility harness (`incident.ts` renders the shared incident) |
 | `bench/` | Throughput benchmark and the live batching check |

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {detectFormat, fileLines, readFile, readText, type RawRecord} from '../src/read.ts';
+import {detectFormat, readText, type RawRecord} from '../src/read.ts';
+import {fileLines, readFile} from '../src/files.ts';
 
 const all = (text: string, format?: Parameters<typeof readText>[1]) => [...readText(text, format)];
 const flat = (r: RawRecord) => Object.fromEntries(r.flat!);

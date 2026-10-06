@@ -8,6 +8,7 @@ import {join} from 'node:path';
 import {analyze, findSeed, load, unfold} from '../src/analyze.ts';
 import {JevClient, type Transport} from '../src/jev.ts';
 import {standIn} from '../src/standin.ts';
+import {answerFile} from '../src/files.ts';
 import {csv, defend, ecs, EVENTS, shuffle, text} from './incident.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'jevline-repro-'));
@@ -24,7 +25,7 @@ async function run(paths: string[], {batch = 1, concurrency = 8, cacheFile, grou
   const bodies: string[] = [];
   const inner = standIn();
   const transport: Transport = body => { bodies.push(body); return inner(body); };
-  const client = new JevClient(transport, {concurrency, ...(cacheFile ? {cacheFile} : {})});
+  const client = new JevClient(transport, {concurrency, ...(cacheFile ? {answers: answerFile(cacheFile)} : {})});
   const {report} = await analyze(loaded, key, client, {description: 'Analyst-confirmed invoice.exe execution on WS-01.', model: 'jev-1.13.0',
     threshold: 0.8, batchSize: batch, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test', group});
   const name = (p: {type: string; name?: string; pid?: number}) => p.type === 'process' ? `${p.name}:${p.pid}` : `${p.type}:${p.name}`;

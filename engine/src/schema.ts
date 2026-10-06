@@ -3,9 +3,7 @@
 // then what each field holds, from a list written for that kind of event. The answer is a mapping
 // that plain code applies to every record of that type, so the cost depends on how many event types
 // there are, not on how many records. Mappings are cached by a fingerprint of the event type and its fields.
-import {createHash} from 'node:crypto';
-import {appendFileSync, existsSync, mkdirSync, readFileSync} from 'node:fs';
-import {dirname} from 'node:path';
+import {sha256} from './hash.ts';
 import type {Event, Kind, ProcRef} from './model.ts';
 import {isObj, normKey, type RawRecord} from './read.ts';
 import {address, basename, canonicalHost, canonicalUser, guid, int, parseTime} from './normalize.ts';
@@ -131,7 +129,7 @@ export function eventType(fields: Map<string, unknown>): [string, string] | null
 /** The group a record belongs to: its event type, or failing that its set of fields. */
 export function groupKey(fields: Map<string, unknown>): string {
   const type = eventType(fields);
-  return type ? `${type[0]}=${type[1]}` : `fields:${createHash('sha256').update([...fields.keys()].sort().join('\n')).digest('hex').slice(0, 16)}`;
+  return type ? `${type[0]}=${type[1]}` : `fields:${sha256([...fields.keys()].sort().join('\n')).slice(0, 16)}`;
 }
 
 // ---- What values look like ---------------------------------------------------------------------
@@ -247,29 +245,26 @@ export interface Mapping {
 /** A fingerprint of a group's event type and the fields it has: the same schema gets the same one. */
 export function fingerprint(group: GroupProfile): string {
   const fields = Object.entries(group.fields).filter(([, f]) => f.count >= group.count * 0.2).map(([name]) => name).sort();
-  return createHash('sha256').update(JSON.stringify([group.type, fields])).digest('hex').slice(0, 24);
+  return sha256(JSON.stringify([group.type, fields])).slice(0, 24);
 }
 
-/** Mappings learned before, by fingerprint (a JSONL file of {fingerprint, group, kind, roles}). */
+export type StoredMapping = Omit<Mapping, 'learned' | 'confidence'>;
+/** Where learned mappings are kept between runs (files.ts mappingFile, or a browser's local storage). */
+export interface MappingStore { load(): Iterable<StoredMapping>; save(mapping: StoredMapping): void }
+
+/** Mappings learned before, by fingerprint. */
 export class SchemaCache {
-  private readonly known = new Map<string, Omit<Mapping, 'learned'>>();
-  private readonly file: string | undefined;
-  constructor(file?: string) {
-    this.file = file;
-    if (file && existsSync(file)) {
-      for (const line of readFileSync(file, 'utf8').split('\n')) {
-        try { const m = JSON.parse(line) as Omit<Mapping, 'learned'>; if (m.fingerprint && m.roles) this.known.set(m.fingerprint, m); } catch { /* skip */ }
-      }
-    }
+  private readonly known = new Map<string, StoredMapping>();
+  private readonly store: MappingStore | undefined;
+  constructor(store?: MappingStore) {
+    this.store = store;
+    for (const m of store?.load() ?? []) this.known.set(m.fingerprint, m);
   }
   get(fingerprint: string): Mapping | undefined { const m = this.known.get(fingerprint); return m ? {...m, learned: 'cache'} : undefined; }
   set(mapping: Mapping): void {
     const {learned: _learned, confidence: _confidence, ...stored} = mapping;
     this.known.set(mapping.fingerprint, stored);
-    if (this.file) {
-      mkdirSync(dirname(this.file), {recursive: true, mode: 0o700});
-      appendFileSync(this.file, JSON.stringify(stored) + '\n', {mode: 0o600});
-    }
+    this.store?.save(stored);
   }
 }
 

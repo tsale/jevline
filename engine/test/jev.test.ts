@@ -5,6 +5,7 @@ import {mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:f
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {JevClient, sha256, TransportError, type JevResponse, type Transport} from '../src/jev.ts';
+import {answerFile, requestLog as requestLogFile} from '../src/files.ts';
 import {ecs} from './incident.ts';
 
 const answer: JevResponse = {model: 'jev-1.13.0', answers: {C1: {type: 'noul', noul: 0.9}}, usage: {input_tokens: 10, output_tokens: 2}};
@@ -44,12 +45,12 @@ test('answers are cached by the SHA-256 of the exact request, on disk and in mem
   const cacheFile = join(dir, 'cache.jsonl'), requestLog = join(dir, 'requests.jsonl');
   let calls = 0;
   const transport: Transport = async () => { calls++; return answer; };
-  const first = new JevClient(transport, {cacheFile, requestLog});
+  const first = new JevClient(transport, {answers: answerFile(cacheFile), onRequest: requestLogFile(requestLog)});
   await first.ask('{"a":1}', 2);
   await first.ask('{"a":1}', 2);
   assert.equal(calls, 1);
   writeFileSync(cacheFile, readFileSync(cacheFile, 'utf8') + '{"sha256": "trunc');  // an interrupted write
-  const second = new JevClient(transport, {cacheFile});
+  const second = new JevClient(transport, {answers: answerFile(cacheFile)});
   assert.deepEqual(await second.ask('{"a":1}', 2), answer);
   assert.equal(calls, 1);
   await second.ask('{"a":2}', 2);

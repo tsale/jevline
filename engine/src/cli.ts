@@ -13,6 +13,7 @@ import {analyze, defaultThreads, findSeed, iso, load, unfold, type Input, type R
 import {JevClient, MODEL, typesafe} from './jev.ts';
 import {standIn} from './standin.ts';
 import {fingerprint, learn, SchemaCache, type Mapping} from './schema.ts';
+import {answerFile, mappingFile, requestLog} from './files.ts';
 import {relative} from './investigate.ts';
 
 const HELP = `Usage:
@@ -109,7 +110,7 @@ function printReport(report: Report) {
   const folded = report.incident.filter(p => p.repeats).length;
   out.push('',
     `${members.length} in the incident (${processes} processes, ${members.length - processes} accounts, hosts, addresses or domains)` +
-      `${folded ? `, shown as ${report.incident.length} rows: ${folded} processes repeat identically` : ''}; ${unfold(report.rejected).length} candidates not linked.`,
+      `${folded ? `, shown as ${report.incident.length} rows: ${folded} ${folded === 1 ? 'process repeats' : 'processes repeat'} identically` : ''}; ${unfold(report.rejected).length} candidates not linked.`,
     `Timeline: ${report.timeline.length.toLocaleString('en-US')} rows from ${report.counts.timeline_events.toLocaleString('en-US')} events (repeats of the same activity folded).`,
     `Input: ${report.counts.records.toLocaleString('en-US')} records → ${report.counts.events.toLocaleString('en-US')} events, ` +
       `${report.counts.processes.toLocaleString('en-US')} processes, ${report.counts.entities.toLocaleString('en-US')} accounts, hosts, addresses and domains, ` +
@@ -144,7 +145,7 @@ async function main(argv: string[]) {
 
   if (command === 'inspect') {
     // Inspect never calls Jev: unknown schemas use mappings learned before, if any.
-    const cache = new SchemaCache(schemaFile);
+    const cache = new SchemaCache(mappingFile(schemaFile));
     const loaded = await load(inputs, {threads, learn: async profiles => {
       const known = new Map<string, Mapping>();
       for (const group of Object.values(profiles)) { const m = cache.get(fingerprint(group)); if (m) known.set(group.key, {...m, group: group.key}); }
@@ -186,9 +187,9 @@ async function main(argv: string[]) {
     transport = typesafe(key); transportName = 'typesafe';
   }
   if (values.out) mkdirSync(values.out, {recursive: true, mode: 0o700});
-  const clientOptions = {concurrency, ...(values.cache ? {cacheFile: values.cache} : {}), ...(values.out ? {requestLog: join(values.out, 'requests.jsonl')} : {})};
+  const clientOptions = {concurrency, ...(values.cache ? {answers: answerFile(values.cache)} : {}), ...(values.out ? {onRequest: requestLog(join(values.out, 'requests.jsonl'))} : {})};
   // Mappings the stand-in guesses are not kept, so a later run with Jev learns them properly.
-  const schemaCache = new SchemaCache(values.offline ? undefined : schemaFile);
+  const schemaCache = new SchemaCache(values.offline ? undefined : mappingFile(schemaFile));
   const schemaClient = new JevClient(transport, clientOptions);
   const loaded = await load(inputs, {threads,
     learn: profiles => learn(profiles, schemaClient, schemaCache, values.model!, values.offline ? 'stand-in' : 'jev')});

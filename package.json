@@ -1,0 +1,11 @@
+{
+  "name": "jevline",
+  "private": true,
+  "description": "One confirmed malicious process, address, account or host in; the incident out. Website (Vercel) and engine.",
+  "engines": {"node": ">=22.18"},
+  "scripts": {
+    "build": "node scripts/build_site.js",
+    "preview": "node scripts/build_site.js && node scripts/serve_site.js",
+    "test": "node tests/test_relay.js && node tests/test_build_site.js && node ui/test_site.js && npm --prefix engine test"
+  }
+}

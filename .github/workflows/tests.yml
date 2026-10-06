@@ -1,4 +1,4 @@
-# Offline tests for every push and pull request (providers are mocked). Vercel deploys the website.
+# Offline tests for every push and pull request (Jev and OpenRouter are faked). Vercel deploys the website.
 name: Tests
 
 on:
@@ -10,22 +10,20 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  website:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Python engine and local portal
-        run: python3 -m unittest test_jev_incident.py test_web_app.py
-      - name: Browser engine, website, relay and UI
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+      - name: Relay, page and published engine
         run: |
-          node ui/test_engine.js
-          node ui/test_browser.js
-          node ui/test_app.js
-          node ui/test_access.js
           node tests/test_relay.js
           node tests/test_build_site.js
+          node ui/test_site.js
       - name: Website build
-        run: node scripts/build_site.js
+        run: node scripts/build_site.js --no-stars
 
   engine:
     runs-on: ubuntu-latest
@@ -40,5 +38,5 @@ jobs:
       - run: npm ci
       - name: Type check
         run: npm run typecheck
-      - name: Engine tests (parsing, identity, links, reproducibility, Jev client, CLI)
+      - name: Engine tests (parsing, identity, links, repeats, browser loader, reproducibility, Jev client, CLI)
         run: npm test

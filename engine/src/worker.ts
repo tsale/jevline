@@ -4,7 +4,8 @@
 import {basename} from 'node:path';
 import {parentPort, workerData} from 'node:worker_threads';
 import type {Event} from './model.ts';
-import {fileLines, OpenQuoteError, readLines, type Format, type RawRecord} from './read.ts';
+import {OpenQuoteError, readLines, type Format, type RawRecord} from './read.ts';
+import {fileLines} from './files.ts';
 import {newStats, normalize} from './normalize.ts';
 import {applyMapping, flatten, groupKey, KEEP_UNKNOWN, observe, type Mapping, type Profiles} from './schema.ts';
 

@@ -1,7 +1,7 @@
-// Reading log files: JSON documents, NDJSON, CSV/TSV and plain text, streamed in chunks so file
-// size is limited by disk, not by memory or by V8's maximum string length (except a single JSON
-// document, which has to be parsed whole).
-import {closeSync, openSync, readSync} from 'node:fs';
+// Reading logs: JSON documents, NDJSON, CSV/TSV and plain text, from any source of numbered lines, so
+// files can be streamed in chunks (files.ts in Node, browser.ts in a browser) and their size is limited
+// by disk, not by memory or by V8's maximum string length (except a single JSON document, which has to
+// be parsed whole).
 
 export const FORMATS = ['auto', 'json', 'ndjson', 'csv', 'text'] as const;
 export type Format = typeof FORMATS[number];
@@ -18,7 +18,6 @@ export interface RawRecord {
   names?: Map<string, string>;
 }
 
-const CHUNK = 16 * 1024 * 1024;
 const BLANK = /^[ \t\r\f\v]*$/;
 const CSV_DELIMITERS = [',', '\t', ';', '|'];
 const CSV_HEADER = /^[A-Za-z_@][A-Za-z0-9_.@ -]{0,99}$/;
@@ -30,36 +29,7 @@ export const isObj = (x: unknown): x is Record<string, unknown> => x !== null &&
 /** Lower-case and drop separators, so "Process Guid", "process_guid" and "process.guid" match. */
 export const normKey = (name: string): string => name.toLowerCase().replace(/[ _.@-]/g, '');
 
-/** The lines of a file (or of bytes [start, end) of it, which must begin at a line start) without line
- * endings, numbered from 1, read `chunk` bytes at a time. A line break byte never occurs inside a
- * UTF-8 character, so decoding up to the last one is always safe. */
-export function* fileLines(path: string, chunk = CHUNK, start = 0, end = Infinity): Generator<[number, string]> {
-  const fd = openSync(path, 'r');
-  try {
-    const buffer = Buffer.allocUnsafe(chunk);
-    let carry = Buffer.alloc(0), number = 0, first = start === 0, position = start;
-    const decode = (bytes: Buffer) => {
-      let text = bytes.toString('utf8');
-      if (first) { text = text.replace(/^\ufeff+/, ''); first = false; }
-      return text.split('\n').map(line => line.endsWith('\r') ? line.replace(/\r+$/, '') : line);
-    };
-    for (;;) {
-      const read = readSync(fd, buffer, 0, Math.min(chunk, end - position), position);
-      if (read <= 0) break;
-      position += read;
-      const data = carry.length ? Buffer.concat([carry, buffer.subarray(0, read)]) : buffer.subarray(0, read);
-      const last = data.lastIndexOf(10);
-      if (last < 0) { carry = Buffer.from(data); continue; }
-      for (const line of decode(data.subarray(0, last))) yield [++number, line];
-      carry = Buffer.from(data.subarray(last + 1));
-    }
-    if (carry.length) for (const line of decode(carry)) yield [++number, line];
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** The lines of a string, numbered from 1, the same way fileLines reads a file. */
+/** The lines of a string, numbered from 1, the same way files.ts reads a file. */
 export function* textLines(text: string): Generator<[number, string]> {
   let number = 0;
   for (const line of text.replace(/^﻿+/, '').split('\n')) yield [++number, line.replace(/\r+$/, '')];
@@ -245,5 +215,4 @@ export function* readLines(lines: Iterable<[number, string]>, format: Format = '
   }
 }
 
-export const readFile = (path: string, format: Format = 'auto') => readLines(fileLines(path), format);
 export const readText = (text: string, format: Format = 'auto') => readLines(textLines(text), format);

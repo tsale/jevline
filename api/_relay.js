@@ -2,39 +2,66 @@
 // Jev request here and this function forwards it unchanged. It stores and logs nothing.
 //
 // - With an Authorization header, the visitor's own TypeSafe key is forwarded for that one request.
-// - Without one, the site's demo key (TYPESAFE_API_KEY) is used, but only for requests built from the
-//   bundled lab example: every event in the request must equal that example's event byte for byte.
+// - Without one, the site's demo key (TYPESAFE_API_KEY) is used, but only for requests about the
+//   bundled lab example: every word in the request must come from that example or from the engine's
+//   own wording (link descriptions, questions, field names), so no other data can be analyzed with it.
 'use strict';
 const crypto = require('node:crypto');
-const engine = require('../ui/engine.js');
+const fs = require('node:fs');
+const path = require('node:path');
 const example = require('../examples/malicious_events.json');
 
+const API = 'https://api.typesafe.ai/v1/systemone';
+const MODEL = 'jev-1.13.0';  // engine/src/jev.ts MODEL (tests/test_relay.js checks they match)
 const MAX_BODY = 256 * 1024;
 const WINDOW_MS = 10 * 60 * 1000;
-const LIMITS = {demo: 200, own: 1000};  // Requests per visitor address per window, per running instance.
-const CACHE_SIZE = 500;
-const TIMEOUT_MS = 30000;
-const QUESTIONS = JSON.stringify(engine.QUESTIONS);
-const STATE_KEYS = ['candidate', 'known_related', 'seed', 'seed_description', 'surrounding'].join();
+const LIMITS = {demo: 300, own: 3000};  // Requests per visitor address per window, per running instance.
+const CACHE_SIZE = 1000;
+const TIMEOUT_MS = 60000;
+const MAX_CANDIDATES = 20;
+const MAX_CONTEXT = 500;
+// The engine files whose wording appears in requests (included in this function on Vercel; see vercel.json).
+const ENGINE_FILES = ['investigate.ts', 'links.ts', 'entities.ts', 'normalize.ts'];
 
 const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
-let bundled = null;
-const bundledEvents = () => bundled || (bundled = new Map(example.map(engine.compact).map(e => [e.id, JSON.stringify(e)])));
+const tokens = text => String(text).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+let known = null;
+// Every word of the bundled example and of the engine's wording, built once per running instance.
+function vocabulary() {
+  if (known) return known;
+  known = new Set(tokens(JSON.stringify(example)));
+  for (const file of ENGINE_FILES) for (const t of tokens(fs.readFileSync(path.join(__dirname, '..', 'engine', 'src', file), 'utf8'))) known.add(t);
+  return known;
+}
 
-// Why a request may not use the demo key, or null when it is built only from the bundled example.
+// Each string in a request (keys and values), with where it is.
+function* strings(value, where = '') {
+  if (typeof value === 'string') yield [where, value];
+  else if (Array.isArray(value)) for (const [i, v] of value.entries()) yield* strings(v, `${where}[${i}]`);
+  else if (isObj(value)) for (const [k, v] of Object.entries(value)) { yield [`${where}.${k}`, k]; yield* strings(v, `${where}.${k}`); }
+}
+
+// Why a request may not use the demo key, or null when every word in it comes from the bundled example
+// or the engine. Numbers (PIDs, ports, counts, times such as +1d 02:03:04) and the request's own labels
+// for candidates and incident members (C1, I2) are allowed; a value the engine shortened ("…") may end in
+// part of a word.
 function demoProblem(body) {
   const notExample = 'The demo key only analyzes the bundled lab example. Choose "My own TypeSafe key" to analyze other data.';
-  if (!isObj(body) || Object.keys(body).sort().join() !== 'model,questions,state' || body.model !== engine.MODEL ||
-      JSON.stringify(body.questions) !== QUESTIONS || !isObj(body.state)) return 'Not a Jev request from this site.';
-  const state = body.state;
-  if (Object.keys(state).sort().join() !== STATE_KEYS || typeof state.seed_description !== 'string' ||
-      state.seed_description.length < 1 || state.seed_description.length > 500 ||
-      !Array.isArray(state.known_related) || state.known_related.length > 6 ||
-      !Array.isArray(state.surrounding) || state.surrounding.length > 8) return 'Not a Jev request from this site.';
-  const events = bundledEvents();
-  const fromExample = e => isObj(e) && typeof e.id === 'string' && events.get(e.id) === JSON.stringify(e);
-  if (![state.seed, state.candidate, ...state.known_related, ...state.surrounding].every(fromExample)) return notExample;
-  if (!engine.isExecution(state.seed) || !engine.isExecution(state.candidate)) return notExample;
+  if (!isObj(body) || Object.keys(body).sort().join() !== 'model,questions,state' || body.model !== MODEL || !isObj(body.state) || !isObj(body.questions)) {
+    return 'Not a Jev request from this site.';
+  }
+  const {analyst_context: context, ...state} = body.state;
+  const labels = Object.keys(body.questions);
+  if (typeof context !== 'string' || context.length > MAX_CONTEXT || !labels.length || labels.length > MAX_CANDIDATES ||
+      !labels.every(label => /^C\d{1,2}$/.test(label) && isObj(body.questions[label]) && body.questions[label].type === 'noul')) {
+    return 'Not a Jev request from this site.';
+  }
+  const words = vocabulary();
+  for (const [, text] of strings({state, questions: body.questions})) {
+    const list = tokens(text);
+    if (text.endsWith('…')) list.pop();
+    if (!list.every(t => words.has(t) || /^(\d+d?|[ci]\d{1,4})$/.test(t))) return notExample;
+  }
   return null;
 }
 
@@ -116,7 +143,7 @@ function createHandler({fetchImpl = (...args) => fetch(...args), env = process.e
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let status, text;
     try {
-      const upstream = await fetchImpl(engine.API, {method: 'POST', body: payload, signal: controller.signal,
+      const upstream = await fetchImpl(API, {method: 'POST', body: payload, signal: controller.signal,
         headers: {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}});
       status = upstream.status;
       text = await upstream.text();
@@ -136,4 +163,4 @@ function createHandler({fetchImpl = (...args) => fetch(...args), env = process.e
   };
 }
 
-module.exports = {createHandler, demoProblem, LIMITS};
+module.exports = {createHandler, demoProblem, LIMITS, MODEL};

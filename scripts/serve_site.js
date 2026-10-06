@@ -12,7 +12,7 @@ const {createHandler} = require('../api/_relay.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const SITE = path.join(ROOT, '_site');
-const TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'};
+const TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json'};
 const headers = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8')).headers[0].headers;
 
 function envFileKey() {

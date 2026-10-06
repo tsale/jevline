@@ -18,6 +18,7 @@ import {parseArgs} from 'node:util';
 import {analyze, findSeed, iso, load, unfold, type Loaded, type ProcessRow} from '../src/analyze.ts';
 import {JevClient, MODEL, TransportError, typesafe, type JevResponse, type Transport} from '../src/jev.ts';
 import {injectionCapable, PERSISTENCE_KEY} from '../src/links.ts';
+import {answerFile} from '../src/files.ts';
 import type {ProcessNode} from '../src/model.ts';
 
 const {values, positionals} = parseArgs({allowPositionals: true, options: {
@@ -102,7 +103,7 @@ function llmJudge(spend: {cost: number}): Transport {
 
 // ---- Methods ---------------------------------------------------------------------------------
 async function engineRun(method: string, transport: Transport, model: string, cacheFile?: string, spend?: {cost: number}): Promise<Result> {
-  const client = new JevClient(transport, {concurrency, ...(cacheFile ? {cacheFile} : {})});
+  const client = new JevClient(transport, {concurrency, ...(cacheFile ? {answers: answerFile(cacheFile)} : {})});
   const started = performance.now();
   const {report} = await analyze(loaded, seedKey, client, {description: values.context!, model, threshold: 0.8, margin: 0.05, batchSize: 1,
     maxRounds: 20, maxCandidatesPerRound: 2000, transport: method});
