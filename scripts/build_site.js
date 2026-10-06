@@ -29,11 +29,45 @@ function repositoryUrl() {
 
 const escapeHtml = text => text.replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
 
-function build(out, repoUrl) {
+// "owner/repo" for a github.com URL, or null.
+function repositorySlug(repoUrl) {
+  const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/?$/.exec(repoUrl);
+  return match ? match[1] : null;
+}
+
+// The repository's star count, read once at build time so the page itself never contacts GitHub.
+// Any failure (offline, rate limit, not a GitHub repo) just leaves the count bubble out.
+async function starCount(repoUrl) {
+  const slug = repositorySlug(repoUrl);
+  if (!slug) return null;
+  try {
+    const response = await fetch(`https://api.github.com/repos/${slug}`, {
+      headers: {accept: 'application/vnd.github+json', 'user-agent': 'jevline-build'},
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const count = (await response.json()).stargazers_count;
+    return Number.isInteger(count) && count >= 0 ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+function starCountHtml(repoUrl, count) {
+  if (count === null || count === undefined) return '';
+  const label = `${count.toLocaleString('en-US')} ${count === 1 ? 'user has' : 'users have'} starred this repository`;
+  return `<a class="github-star-count" href="${escapeHtml(repoUrl)}/stargazers" target="_blank" rel="noopener noreferrer" aria-label="${label}">${count.toLocaleString('en-US')}</a>`;
+}
+
+function build(out, repoUrl, stars = null) {
   fs.rmSync(out, {recursive: true, force: true});
   fs.mkdirSync(path.join(out, 'examples'), {recursive: true});
   const page = fs.readFileSync(path.join(ROOT, 'site', 'index.html'), 'utf8');
-  fs.writeFileSync(path.join(out, 'index.html'), page.replaceAll('{{REPO_URL}}', escapeHtml(repoUrl)));
+  const filled = page
+    .replaceAll('{{STAR_COUNT}}', starCountHtml(repoUrl, stars))
+    .replaceAll('{{REPO_NAME}}', escapeHtml(repositorySlug(repoUrl) || repoUrl))
+    .replaceAll('{{REPO_URL}}', escapeHtml(repoUrl));
+  fs.writeFileSync(path.join(out, 'index.html'), filled);
   for (const name of ['app.js', 'engine.js', 'styles.css']) fs.copyFileSync(path.join(ROOT, 'ui', name), path.join(out, name));
   // Loaded as a script, so the page's connection policy needs nothing extra for it.
   const example = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'malicious_events.json'), 'utf8'));
@@ -41,20 +75,27 @@ function build(out, repoUrl) {
   return ['index.html', 'app.js', 'engine.js', 'styles.css', 'examples/malicious_events.js'];
 }
 
-function main(argv) {
+async function main(argv) {
   const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
   if (argv.includes('-h') || argv.includes('--help')) {
-    process.stdout.write('Usage: node scripts/build_site.js [--out DIR] [--repo-url https://...]\n');
+    process.stdout.write('Usage: node scripts/build_site.js [--out DIR] [--repo-url https://...] [--stars N | --no-stars]\n');
     return;
   }
   const out = path.resolve(option('--out') || path.join(ROOT, '_site'));
   const repoUrl = option('--repo-url') || repositoryUrl();
   if (!/^https:\/\/[^\s"'<>]+$/.test(repoUrl)) throw new Error(`--repo-url must be an https URL, got ${JSON.stringify(repoUrl)}`);
-  const files = build(out, repoUrl);
-  process.stdout.write(`Built ${files.length} files into ${out} (source link: ${repoUrl})\n`);
+  let stars = null;
+  if (option('--stars') !== undefined) {
+    stars = Number(option('--stars'));
+    if (!Number.isInteger(stars) || stars < 0) throw new Error(`--stars must be a whole number, got ${JSON.stringify(option('--stars'))}`);
+  } else if (!argv.includes('--no-stars')) {
+    stars = await starCount(repoUrl);
+  }
+  const files = build(out, repoUrl, stars);
+  process.stdout.write(`Built ${files.length} files into ${out} (source link: ${repoUrl}; stars: ${stars ?? 'not shown'})\n`);
 }
 
 if (require.main === module) {
-  try { main(process.argv.slice(2)); } catch (error) { process.stderr.write(`build_site: ${error.message}\n`); process.exit(1); }
+  main(process.argv.slice(2)).catch(error => { process.stderr.write(`build_site: ${error.message}\n`); process.exit(1); });
 }
-module.exports = {build, repositoryUrl};
+module.exports = {build, repositoryUrl, repositorySlug, starCountHtml};

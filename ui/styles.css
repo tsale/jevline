@@ -266,6 +266,15 @@ td:nth-child(10), td:nth-child(11) { min-width: 120px; white-space: nowrap; }
 .privacy-show { margin-left: auto; border: 0; background: none; color: var(--text-2); font-size: 14px; font-weight: 500; }
 .privacy-show:hover { color: var(--text); }
 .privacy-show:not([hidden]) + .repo-link { margin-left: 4px; }
+/* GitHub star button (large, dark scheme), with its count bubble. */
+.github-star { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; margin-left: -24px; font: 600 14px/20px var(--sans); }
+.github-star a { display: inline-flex; align-items: center; height: 32px; border: 1px solid rgba(240,246,252,.1); border-radius: 6px; color: #c9d1d9; text-decoration: none; white-space: nowrap; transition: background .15s ease, border-color .15s ease, color .15s ease; }
+.github-star-button { gap: 6px; padding: 0 12px; background: #21262d; }
+.github-star-button:hover { background: #30363d; border-color: #8b949e; }
+.github-star-button svg { color: #8b949e; }
+.github-star-count { position: relative; padding: 0 10px; background: #0d1117; }
+.github-star-count::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; margin-top: -4px; background: #0d1117; border: solid rgba(240,246,252,.1); border-width: 0 0 1px 1px; transform: rotate(45deg); }
+.github-star-count:hover { color: #58a6ff; }
 .privacy-note { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; margin-bottom: 24px; padding: 18px 56px 18px 20px; border: 1px solid rgba(95,201,180,.28); border-radius: 12px;
   background: linear-gradient(135deg, rgba(95,201,180,.11), rgba(122,167,255,.05) 60%, rgba(22,24,28,0)), var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
 .privacy-icon { display: grid; place-items: center; width: 40px; height: 40px; padding: 9px; border-radius: 10px; background: rgba(95,201,180,.14); color: #93dccd; }
@@ -303,7 +312,9 @@ label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--ac
 }
 @media (max-width: 600px) {
   body { font-size: 14px; }
-  .topbar-inner { display: block; padding: 12px 16px 0; }
+  .topbar-inner { position: relative; display: block; padding: 12px 16px 0; }
+  .github-star { position: absolute; top: 8px; right: 16px; margin-left: 0; }
+  .github-star a { height: 28px; }
   .brand { display: block; margin-bottom: 6px; }
   .page-nav { gap: 0; min-height: 44px; margin: 0 -10px; }
   .page-nav button { padding: 0 10px; font-size: 13px; }

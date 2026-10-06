@@ -23,5 +23,6 @@ jobs:
           node ui/test_app.js
           node ui/test_access.js
           node tests/test_relay.js
+          node tests/test_build_site.js
       - name: Website build
         run: node scripts/build_site.js
