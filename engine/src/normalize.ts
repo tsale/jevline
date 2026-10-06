@@ -150,7 +150,7 @@ export function parseTime(v: unknown): number | null {
 
 const SYSMON: Record<string, Kind> = {
   '1': 'process_start', '5': 'process_end', '3': 'network', '7': 'image_load', '8': 'inject', '10': 'process_access',
-  '11': 'file_create', '15': 'file_create', '29': 'file_create', '23': 'file_delete', '26': 'file_delete',
+  '11': 'file_create', '15': 'file_create', '29': 'file_create', '23': 'file_delete', '26': 'file_delete', '2': 'file_time',
   '13': 'registry_set', '17': 'pipe_create', '18': 'pipe_connect', '22': 'dns',
 };
 const SECURITY: Record<string, Kind> = {'4688': 'process_start', '4689': 'process_end', '4697': 'service_install', '4698': 'task_create',
@@ -286,7 +286,7 @@ export function normalize(record: RawRecord, file: number, seq: number, stats?: 
       if (access !== undefined) event.access = access;
       break;
     }
-    case 'file_create': case 'file_delete': case 'image_load': {
+    case 'file_create': case 'file_delete': case 'file_time': case 'image_load': {
       const path = str(get(F.filePath))?.trim();
       if (path) event.file_path = path;
       const sha = str(get(F.fileSha256))?.toLowerCase() ?? sha256From(get(F.hashes));

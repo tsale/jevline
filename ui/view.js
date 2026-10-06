@@ -23,7 +23,7 @@
   }
 
   const KIND = {process_start: 'Process start', process_end: 'Process end', inject: 'Process injection', process_access: 'Process access',
-    file_create: 'File write', file_delete: 'File delete', image_load: 'Module load', network: 'Network', dns: 'DNS lookup',
+    file_create: 'File write', file_delete: 'File delete', file_time: 'File time changed', image_load: 'Module load', network: 'Network', dns: 'DNS lookup',
     registry_set: 'Registry', pipe_create: 'Named pipe', pipe_connect: 'Named pipe', service_install: 'Service install',
     task_create: 'Scheduled task', logon: 'Logon', logon_failed: 'Failed logon', http_request: 'Web request'};
   const kindLabel = kind => KIND[kind] || kind;
@@ -43,7 +43,7 @@
   function indicatorFor(row) {
     const detail = row.detail || '';
     switch (row.kind) {
-      case 'file_create': case 'file_delete': case 'image_load': return [detail, 'file-path', 'Host Artifacts'];
+      case 'file_create': case 'file_delete': case 'file_time': case 'image_load': return [detail, 'file-path', 'Host Artifacts'];
       case 'registry_set': return [detail.split(' = ')[0], 'registry-key', 'Host Artifacts'];
       case 'dns': return [detail, 'domain', 'Domain Names'];
       case 'network': {
@@ -72,10 +72,18 @@
     failed_logon: 'failed to log on as', requested: 'sent web requests to'};
 
   /** The incident as a tree from the seed, built from Jev's decisions and the links alone (no AI), as Markdown. */
+  const MAX_ACTIVITY = 25;  // activity lines per member in the chain; the timeline has every row
+
   function chainMarkdown(report) {
     const memberMap = members(report), rowOf = key => memberMap.get(key)?.row;
-    const firstEvent = new Map();
-    for (const t of report.timeline) if (t.member && !firstEvent.has(rowOf(t.member)?.key)) firstEvent.set(rowOf(t.member)?.key, t.event_id);
+    const firstEvent = new Map(), activity = new Map();
+    for (const t of report.timeline) {
+      const owner = rowOf(t.member)?.key;
+      if (!owner) continue;
+      if (!firstEvent.has(owner) || (t.kind === 'process_start' && t.member === owner)) firstEvent.set(owner, t.event_id);
+      // What a process did: everything but its own start and end (those are the member's line).
+      if (t.process && t.kind !== 'process_start' && t.kind !== 'process_end') (activity.get(owner) ?? activity.set(owner, []).get(owner)).push(t);
+    }
     const children = new Map(report.incident.map(row => [row.key, []]));
     const roots = [];
     for (const row of report.incident) {
@@ -87,7 +95,7 @@
     for (const {row} of memberMap.values()) if (row.type === 'process') processes++;
     const others = memberMap.size - processes;
     const lines = ['## Incident chain from Jev results', '',
-      `${processes} process${processes === 1 ? '' : 'es'} and ${others} ${others === 1 ? 'account, host, address or domain' : 'accounts, hosts, addresses or domains'}, each under the member that brought it in. Built from Jev's decisions and the links between members; no AI.`, ''];
+      `${processes} process${processes === 1 ? '' : 'es'} and ${others} ${others === 1 ? 'account, host, address or domain' : 'accounts, hosts, addresses or domains'}, each under the member that brought it in, with what each process did. Built from Jev's decisions, the links between members and their recorded activity; no AI.`, ''];
     const name = row => row.type === 'process' ? `**${plain(row.name || '?')}** (PID ${plain(row.pid ?? '?')})` : `**${plain(row.name)}** (${row.type === 'user' ? 'account' : row.type})`;
     const how = row => row.key === report.seed.key ? 'confirmed seed' : row.joined ? `Jev ${pct(row.joined.probability)}${row.joined.review ? ', review' : ''}` : 'linked';
     const seen = new Set();
@@ -99,7 +107,22 @@
       const repeats = row.repeats ? ` · ×${row.repeats.count} identical${row.repeats.last_start ? `, the last started ${plain(row.repeats.last_start)}` : ''}` : '';
       lines.push(`${pad}- ${via ? `${LINK_VERB[via.link] || via.link} → ` : ''}${name(row)} · ${how(row)} · ${plain(when)}${repeats}${event ? ` [evt:${event}]` : ''}`);
       if (row.command_line) lines.push(`${pad}  - \`${plain(row.command_line.length > 300 ? `${row.command_line.slice(0, 300)}…` : row.command_line)}\``);
-      for (const child of children.get(row.key).sort((a, b) => String(a.via.at || '').localeCompare(String(b.via.at || '')))) walk(child.row, depth + 1, child.via);
+      // Its activity and the members that joined through it, in time order. An injection into, or a
+      // contact with, a member that has its own line below is not repeated as activity.
+      const kids = children.get(row.key);
+      const shown = new Set(kids.map(c => String(c.row.name || '').toLowerCase()));
+      const acts = (activity.get(row.key) || []).filter(t => {
+        const target = String(t.detail || '').split(/[ :]/)[0].toLowerCase();
+        return !(['inject', 'process_access', 'network', 'dns'].includes(t.kind) && shown.has(target));
+      });
+      const items = [...acts.slice(0, MAX_ACTIVITY).map(t => ({at: t.time || '', act: t})), ...kids.map(c => ({at: c.via.at || '', child: c}))]
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      for (const item of items) {
+        if (item.child) { walk(item.child.row, depth + 1, item.child.via); continue; }
+        const t = item.act, detail = t.detail ? ` \`${plain(t.detail.length > 200 ? `${t.detail.slice(0, 200)}…` : t.detail)}\`` : '';
+        lines.push(`${pad}  - ${kindLabel(t.kind)}${detail}${t.count ? ` ×${t.count}` : ''} [evt:${t.event_id}]`);
+      }
+      if (acts.length > MAX_ACTIVITY) lines.push(`${pad}  - … ${acts.length - MAX_ACTIVITY} more in the Event timeline`);
     };
     for (const row of roots.sort((a, b) => (a.key !== report.seed.key) - (b.key !== report.seed.key))) walk(row, 0, null);
     for (const row of report.incident) walk(row, 0, null);

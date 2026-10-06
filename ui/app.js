@@ -308,9 +308,9 @@
     if (!r) { $('incident-count').textContent = 'Nothing linked yet'; return; }
     const total = View.members(r).size;
     $('incident-count').textContent = `${plural(total, 'member')}${r.incident.length < total ? `, ${plural(r.incident.length, 'row')} (identical repeats folded)` : ''}`;
-    for (const row of r.incident) {
+    const addRow = (row, linked) => {
       const seed = row.key === r.seed.key;
-      const tr = element('tr', `origin-${seed ? 'seed' : 'related'}`);
+      const tr = element('tr', `origin-${seed ? 'seed' : linked ? 'related' : 'context'}`);
       const what = element('td');
       what.append(element('span', 'member-name', memberLabel(row)));
       if (row.repeats) what.append(element('span', 'repeat', `×${row.repeats.count}`));
@@ -321,11 +321,23 @@
       const score = element('td');
       if (seed) score.append(element('span', 'pill seed', 'Seed'));
       else {
-        score.append(element('span', 'pill related', `Jev ${Math.round(row.joined.probability * 100)}%`));
+        score.append(element('span', `pill ${linked ? 'related' : 'context'}`, `${linked ? 'Jev' : 'Not linked'} ${Math.round(row.joined.probability * 100)}%`));
         if (row.joined.review) score.append(element('span', 'pill review', 'review'));
       }
       tr.append(element('td', '', sinceSeed(row)), what, via, score);
       body.append(tr);
+    };
+    for (const row of r.incident) addRow(row, true);
+    // Candidates Jev was asked about and scored below the threshold, closest first: a near miss (marked
+    // review) can go either way on another run, so it is shown rather than dropped.
+    const near = r.rejected.filter(row => row.joined && row.joined.probability >= 0.5).sort((a, b) => b.joined.probability - a.joined.probability);
+    if (near.length) {
+      const head = element('tr', 'section-row');
+      const cell = element('td', '', `Asked but not linked: Jev scored ${plural(near.length, 'candidate')} from 50% to just under ${Math.round(r.jev.threshold * 100)}%`);
+      cell.colSpan = 4;
+      head.append(cell);
+      body.append(head);
+      for (const row of near.slice(0, 100)) addRow(row, false);
     }
   }
   function renderTimeline() {

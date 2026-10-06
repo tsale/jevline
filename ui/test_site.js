@@ -67,6 +67,9 @@ for (const id of used) assert.ok(ids.has(id), `#${id} is in the page`);
   assert.match(chain, /\n {2}- injected into → \*\*sihost\.exe\*\* \(PID 7328\) · Jev 90% · running before the logs/);
   assert.match(chain, /\*\*RuntimeBroker\.exe\*\* \(PID 9972\) · Jev 90% · running before the logs · ×5 identical/);
   assert.match(chain, new RegExp(`${[...members.values()].filter(m => m.row.type === 'process').length} processes and `));
+  // Under each process, what it did: the seed's drop, timestomp, persistence and network, with citations.
+  for (const line of [/\n {2}- File write `C:\\Users\\USER_1\\AppData\\Roaming\\Microsoft\\Windows\\Services\\wlrmdr\.exe` ×2 \[evt:/,
+    /\n {2}- File time changed `[^`]*wlrmdr\.exe` \[evt:/, /\n {2}- Registry `[^`]*UserInitMprLogonScript/, /\n {2}- Network `173\.223\.234\.200:80`/]) assert.match(chain, line);
 
   // The narrative input: the seed and every member's joining event first, each with how it is linked.
   const input = View.narrativeInput(report);

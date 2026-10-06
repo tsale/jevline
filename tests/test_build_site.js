@@ -54,7 +54,7 @@ assert.equal(starCountHtml('https://github.com/a/b', 1).includes('1 user has sta
   const source = await import(path.join(__dirname, '..', 'engine', 'src', 'browser.ts'));
   const [a, b] = [await built.loadFiles([file]), await source.loadFiles([file])];
   assert.deepEqual(JSON.parse(JSON.stringify(a.events)), JSON.parse(JSON.stringify(b.events)));
-  assert.equal(a.events.length, 64);
+  assert.equal(a.events.length, 65);
   fs.rmSync(modules, {recursive: true, force: true});
   fs.rmSync(out, {recursive: true, force: true});
   console.log(`build_site tests passed: page, ${engineFiles.length} engine modules that run as published`);
