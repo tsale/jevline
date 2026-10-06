@@ -34,32 +34,11 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 - **Each source sees part of the attack.** The EDR export doesn't record four of the injections; the Windows logs miss two browser steps and two launches of the implant, which Jev scored 0.65 to 0.77. Together they find 40 of 41. The one miss, `FnHotkeyUtility.exe` (9644), scored 0.78, just under the 0.8 threshold, and is marked for review.
 - **Questions grow with the incident, not the logs:** 337 to 1,123 Jev requests for more than 25,000 process starts.
 
-### Compared with a general-purpose LLM
-
-The same logs and scoring, with GLM 5.3 Flash (through OpenRouter) used two ways: making every link decision in Jev's place, or checking Jev's finished incident in one prompt.
-
-| Logs analyzed | Approach | Attack-chain processes found | Wrong decisions | Time | Cost |
-|---|---|:---:|:---:|---:|---:|
-| Both together | GLM 5.3 Flash makes every decision, in Jev's place (1,119 questions) | 41 of 41 | 8 | 32.6 min | $1.06 |
-| Elastic Defend (EDR) | Jev decides, then GLM 5.3 Flash checks every link in one prompt | 33 of 41 | 1 | 5.7 min | $0.06 |
-| Windows event logs | Jev decides, then GLM 5.3 Flash checks every link in one prompt | 31 of 41 | 0 | 2.7 min | $0.05 |
-| Both together | Jev decides, then GLM 5.3 Flash checks every link in one prompt | 40 of 41 | 1 | 46 s | $0.11 |
-
-- **GLM in Jev's place.** GLM answered the questions Jev answers, at the same 0.8 threshold.
-  - **Time:** 94 times longer. It reasons before each answer and took 9 s per question (median), against Jev's 0.08 s.
-  - **Cost:** 10 times more.
-  - **Accuracy:** it found one more attack-chain process, and brought in 8 processes the chain doesn't list, such as `cmd.exe`, `whoami.exe` and `nltest.exe` started by the injected `explorer.exe`.
-- **GLM checking Jev's links.**
-  - **What GLM got:** the whole incident Jev linked, in one prompt: the analyst's context, the starting point, and every member with its identity, command line, start time and the links that brought it in, without Jev's scores.
-  - **What it did:** gave each member a probability that the link is correct. Members below 0.5 were removed, along with anything that joined only through them.
-  - **Result:** it never removed the one wrong decision. On the Windows logs it removed `sihost.exe` and five `RuntimeBroker.exe` processes that 2.8.exe injected into, all in the attack chain.
-  - **Speed:** its one call took 25 s to 5.5 minutes.
-
 **How to read it.**
 - **Link threshold:** a candidate joins the incident when the model's probability that it belongs is 0.8 or higher (the default, `--threshold`). Answers within 0.05 of it are marked for review.
 - **Wrong decisions:** processes linked into the incident before September 24 that the analyst's chain doesn't list.
 - **Time:** from opening the files to the finished incident, including 4 to 8 s of reading and linking, with 8 requests in flight.
-- **Cost:** Jev at TypeSafe's published $42 per billion input tokens; GLM 5.3 Flash at OpenRouter's list price ($0.15 per million input tokens, $0.50 per million output).
+- **Cost:** Jev at TypeSafe's published $42 per billion input tokens.
 - **The incident is larger than the scored window.** It also has the C2 and Telegram addresses, generated malware domains, and the activity after September 24, such as hundreds of relaunches of a beacon.
 
 Reproduce with [`engine/bench/compare.ts`](engine/bench/compare.ts).
