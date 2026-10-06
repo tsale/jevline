@@ -30,7 +30,12 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 | Elastic Defend (EDR) | 705,017 records · 1.3 GB | **Jev** | 0.8 | **33 of 41** | 1 | **10 s** | **$0.03** |
 | Windows event logs | 310,942 records · 1.0 GB | **Jev** | 0.8 | **37 of 41** | **0** | **6 s** | **$0.03** |
 | Both together | 1,015,959 records · 2.3 GB | **Jev** | 0.8 | **40 of 41** | 1 | **21 s** | **$0.11** |
+| Both together | 1,015,959 records · 2.3 GB | GLM 5.3 Flash, in Jev's place | 0.8 | 41 of 41 | 8 | 32.6 min | $1.06 |
 
+- **Same engine, same questions, a different model.** In the last row, GLM 5.3 Flash answered the questions Jev answers.
+  - **Time:** 94 times longer. GLM reasons before each answer and took 9 s per question (median), against Jev's 0.08 s.
+  - **Cost:** 10 times more.
+  - **Accuracy:** it found one more attack-chain process, and brought in 8 processes the attack chain doesn't list, such as `cmd.exe`, `whoami.exe` and `nltest.exe` started by the injected `explorer.exe`.
 - **Each source sees part of the attack.** The EDR export doesn't record four of the injections; the Windows logs miss two browser steps and two launches of the implant, which Jev scored 0.65 to 0.77. Together they find 40 of 41. The one miss, `FnHotkeyUtility.exe` (9644), scored 0.78, just under the 0.8 threshold, and is marked for review.
 - **Questions grow with the incident, not the logs:** 337 to 1,123 Jev requests for more than 25,000 process starts.
 
@@ -38,7 +43,7 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 - **Link threshold:** a candidate joins the incident when the model's probability that it belongs is 0.8 or higher (the default, `--threshold`). Answers within 0.05 of it are marked for review.
 - **Wrong decisions:** processes linked into the incident before September 24 that the analyst's chain doesn't list.
 - **Time:** from opening the files to the finished incident, including 4 to 8 s of reading and linking, with 8 requests in flight.
-- **Cost:** Jev at TypeSafe's published $42 per billion input tokens.
+- **Cost:** Jev at TypeSafe's published $42 per billion input tokens; GLM 5.3 Flash at OpenRouter's list price ($0.15 per million input tokens, $0.50 per million output).
 - **The incident is larger than the scored window.** It also has the C2 and Telegram addresses, generated malware domains, and the activity after September 24, such as hundreds of relaunches of a beacon.
 
 Reproduce with [`engine/bench/compare.ts`](engine/bench/compare.ts).
