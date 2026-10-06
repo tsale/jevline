@@ -41,7 +41,7 @@
             <h2 id="privacy-title">What reaches us, and what doesn't</h2>
             <ul class="privacy-points">
               <li><strong>Your files stay in your browser.</strong> They are read and linked here, on your device. Only a short summary of each candidate Jev is asked about is sent, through this site's relay to TypeSafe. Browsers can't call TypeSafe directly, so the relay forwards each request as-is and keeps nothing.</li>
-              <li><strong>Demo key or yours.</strong> The demo uses our TypeSafe key, on the bundled lab example only. Your own key is passed along with each request and never stored or logged.</li>
+              <li><strong>Our key or yours.</strong> Our TypeSafe key is free to use on your own logs, within a fair-use limit per visitor. Your own key is passed along with each request and never stored or logged.</li>
               <li><strong>OpenRouter goes direct.</strong> Your OpenRouter key goes straight from this browser to <code>openrouter.ai</code>. The page can't connect anywhere else; <a href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer">read the code</a>.</li>
             </ul>
           </div>
@@ -59,7 +59,7 @@
                 <button id="choose" class="button" type="button">Choose files</button>
                 <input id="file" type="file" multiple accept=".json,.ndjson,.jsonl,.csv,.tsv,.log,.txt,application/json,text/csv,text/plain" hidden>
               </div>
-              <div class="source-line"><span id="source" class="small">No logs loaded</span><button id="preview" class="button subtle" type="button">Load bundled lab example</button></div>
+              <div class="source-line"><span id="source" class="small">No logs loaded</span><span class="example-actions"><button id="preview" class="button subtle" type="button">Load bundled lab example</button><a class="button subtle" href="{{REPO_URL}}/raw/main/examples/malicious_events.json" download="malicious_events.json" target="_blank" rel="noopener noreferrer">Download it from GitHub</a></span></div>
               <div id="loaded-summary" class="loaded-summary" hidden></div>
               <div class="field-grid">
                 <label for="seed-filter">Starting point
@@ -95,8 +95,8 @@
                 <h3 id="keys-title">Jev access and API keys</h3>
                 <fieldset class="jev-mode">
                   <legend class="sr-only">Jev access</legend>
-                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Demo key</strong><span class="field-hint">Ours, free to try. Bundled lab example only.</span></span></label>
-                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">Analyze your own files.</span></span></label>
+                  <label class="choice" for="mode-demo"><input id="mode-demo" type="radio" name="jev-mode" value="demo" checked><span><strong>Our free key</strong><span class="field-hint">Analyze your own logs. A fair-use limit applies per visitor.</span></span></label>
+                  <label class="choice" for="mode-own"><input id="mode-own" type="radio" name="jev-mode" value="own"><span><strong>My own TypeSafe key</strong><span class="field-hint">No limit from us; billed to your TypeSafe account.</span></span></label>
                 </fieldset>
                 <label id="jev-key-field" for="jev-key" hidden>TypeSafe (Jev) API key
                   <span class="field-hint">Sent with each request through the relay, never stored. <a href="https://docs.typesafe.ai/introduction/quickstart" target="_blank" rel="noopener noreferrer">Get a key</a></span>

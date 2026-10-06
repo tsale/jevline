@@ -6,8 +6,7 @@
   "outputDirectory": "_site",
   "functions": {
     "api/jev.js": {
-      "maxDuration": 60,
-      "includeFiles": "engine/src/*.ts"
+      "maxDuration": 60
     }
   },
   "headers": [

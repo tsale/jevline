@@ -357,3 +357,4 @@ input[type="search"]:disabled, input[type="text"]:disabled { color: var(--text-3
 .page-nav::-webkit-scrollbar { display: none; }
 .page-nav button { flex: 0 0 auto; white-space: nowrap; }
 @media (max-width: 1100px) { .topbar-inner { gap: 20px; } .page-nav button { padding: 0 9px; } }
+.example-actions { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }

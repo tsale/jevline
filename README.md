@@ -30,8 +30,12 @@ Six days of telemetry from one Windows host, CLA-WS-214, where a loader (`2.8.ex
 | Elastic Defend (EDR) | 705,017 records · 1.3 GB | **Jev** | 0.8 | **33 of 41** | 1 | **10 s** | **$0.03** |
 | Windows event logs | 310,942 records · 1.0 GB | **Jev** | 0.8 | **37 of 41** | **0** | **6 s** | **$0.03** |
 | Both together | 1,015,959 records · 2.3 GB | **Jev** | 0.8 | **40 of 41** | 1 | **21 s** | **$0.11** |
+| Elastic Defend (EDR) | 705,017 records · 1.3 GB | Jev, enriched by GLM 5.3 Flash | 0.8 | 33 of 41 | 1 | 2.2 min | $0.04 |
+| Windows event logs | 310,942 records · 1.0 GB | Jev, enriched by GLM 5.3 Flash | 0.8 | 37 of 41 | 0 | 1.7 min | $0.03 |
+| Both together | 1,015,959 records · 2.3 GB | Jev, enriched by GLM 5.3 Flash | 0.8 | 40 of 41 | 1 | 1.8 min | $0.11 |
 | Both together | 1,015,959 records · 2.3 GB | GLM 5.3 Flash, in Jev's place | 0.8 | 41 of 41 | 8 | 32.6 min | $1.06 |
 
+- **Jev decides, GLM enriches.** In the "enriched" rows, Jev's incident is sent to GLM 5.3 Flash once, as the website's **Request narrative** does: up to 60 timeline rows. GLM drafts titles, summaries, ATT&CK tactics and techniques, and a written chain. On each input it drafted 36 to 60 rows, all with an ATT&CK mapping, in one request taking 1.5 to 2 minutes and costing about half a cent. Enrichment doesn't change what's linked, so the scores are Jev's.
 - **Same engine, same questions, a different model.** In the last row, GLM 5.3 Flash answered the questions Jev answers.
   - **Time:** 94 times longer. GLM reasons before each answer and took 9 s per question (median), against Jev's 0.08 s.
   - **Cost:** 10 times more.
@@ -65,13 +69,13 @@ Tested this way: the same incident as Sysmon, Defender for Endpoint (five Advanc
 |---|---|---|
 | Start | Open **[jev-incident-timeline.vercel.app](https://jev-incident-timeline.vercel.app/)** | `node engine/src/cli.ts analyze …` (Node.js 22.18+, nothing to install) |
 | Where the analysis runs | In your browser, on your device | On your machine, on up to 8 cores |
-| Jev (TypeSafe) | Our **demo key** on the bundled example, or **your own key** for your files | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
+| Jev (TypeSafe) | **Our free key** on your logs (fair-use limit per visitor), or **your own key** | Your key, from `TYPESAFE_API_KEY` or a private `.env` |
 | Narrative (optional) | Your OpenRouter key, typed into the page | |
 | Results | Incident, timeline, execution chain and evidence table; download the report and every Jev request | The incident table; `--out` writes the report and every Jev request |
 
 ### The website
 
-1. Drop in your log files (or click **Load bundled lab example**).
+1. Drop in your log files, or click **Load bundled lab example**. The example is also on GitHub: [`examples/malicious_events.json`](examples/malicious_events.json).
 2. Pick the **starting point**, the process you've confirmed as malicious, from the process starts in your logs. Or type an address, domain, account or host. Add a sentence of **analyst context**.
 3. Click **Analyze with Jev**.
 
@@ -80,7 +84,7 @@ The **Incident** tab lists every member: how it joined, Jev's probability, and a
 **How the website handles keys and data.**
 - **Your files** are read and linked in your browser and never uploaded. Only a short summary of each candidate Jev is asked about leaves it.
 - **Jev requests** go through a small relay on the same site, [`api/jev.js`](api/jev.js), which forwards each one to TypeSafe unchanged. Browsers can't call TypeSafe directly.
-- **Demo key:** our TypeSafe key, stored as a server secret, answers only questions about the bundled lab example. The relay refuses any request containing words that aren't in that example or in the engine's own wording.
+- **Our free key:** our TypeSafe key, stored as a server secret, works on your own logs, within a fair-use limit per visitor. The relay forwards only requests shaped as the engine builds them.
 - **Your own key** travels with each request through the relay to TypeSafe and is never stored or logged.
 - **OpenRouter:** your key goes straight from your browser to `openrouter.ai`, never through us.
 
@@ -121,7 +125,7 @@ Jev is asked about what the telemetry connects to the incident, not about every 
 |---|---|---|
 | Load logs | Nothing | |
 | **Analyze with Jev** | For each candidate, a summary: names, paths, command lines, PIDs, hashes and users of the starting point, the candidate and the incident members it links to; the links themselves; samples of what the candidate did. Your analyst context. | TypeSafe (on the website, through the site's relay) |
-| Logs from an unknown schema | Field names with a few example values per field, once per event type | TypeSafe (your key only) |
+| Logs from an unknown schema | Field names with a few example values per field, once per event type | TypeSafe |
 | **Request narrative** | At most 60 timeline rows of the incident | OpenRouter (directly) |
 
 Only analyze telemetry you're allowed to share with these providers.
@@ -142,7 +146,7 @@ npm run preview                 # build the site and serve it with the relay at 
 
 The engine needs `npm ci` in `engine/` once, for type checking only (`npm --prefix engine run typecheck`). The website is `site/index.html`, `ui/` and the engine's browser modules, built into `_site/` by `node scripts/build_site.js`, plus the relay function in `api/`. `vercel.json` sets the build and the security headers.
 
-To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`). Then add the demo key as a secret with `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. The relay rate-limits each visitor and caches repeated demo requests, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/jev` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
+To deploy your own copy, import the repository in Vercel (or run `vercel deploy --prod`). Then add the site's free key as a secret with `vercel env add TYPESAFE_API_KEY production`, and redeploy. Without it the site still works with visitors' own keys. The relay rate-limits each visitor and caches repeated demo requests, but per running instance only, so add a Vercel Firewall rate-limit rule on `/api/jev` for a hard limit. The [Tests workflow](.github/workflows/tests.yml) runs every suite on each push and pull request.
 
 | Path | Contents |
 |---|---|

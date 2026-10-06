@@ -6,7 +6,7 @@
   const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
   const NARRATIVE_MODEL = 'deepseek/deepseek-v4.1-flash';
   const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-  const NARRATIVE_TIMEOUT_MS = 180000;
+  const NARRATIVE_TIMEOUT_MS = 300000;
   const MAX_NARRATIVE_ROWS = 60;
   const MAX_CHAIN = 20000;
   const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -202,14 +202,15 @@
     const selected = narrativeInput(report);
     const allowed = new Set(selected.map(e => e.event_id));
     const messages = [{role: 'system', content: SYSTEM_PROMPT}, {role: 'user', content: JSON.stringify({seed: report.seed.name, incident_events: selected})}];
-    for (const maxTokens of [8192, 16384]) {
+    // Reasoning models spend part of max_tokens thinking; drafting needs little of it.
+    for (const maxTokens of [16384, 32768]) {
       const timeout = AbortSignal.timeout(NARRATIVE_TIMEOUT_MS);
       let response, text;
       try {
         response = await fetchImpl(OPENROUTER, {method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
           headers: {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'X-Title': 'Jevline'},
-          body: JSON.stringify({model, temperature: 0, max_tokens: maxTokens, messages})});
+          body: JSON.stringify({model, temperature: 0, max_tokens: maxTokens, reasoning: {effort: 'low'}, messages})});
         text = await response.text();
       } catch (error) {
         if (signal?.aborted) throw error;
@@ -225,7 +226,7 @@
         return {timeline: validateTimeline(data, allowed), execution_chain: cleanChain(isObj(data) ? data.execution_chain : null, allowed),
           model: result.model || model, usage: result.usage || {}};
       } catch (error) {
-        if (maxTokens === 8192) continue;
+        if (maxTokens === 16384) continue;
         throw new Error(`OpenRouter returned no usable draft (${error.message})`);
       }
     }

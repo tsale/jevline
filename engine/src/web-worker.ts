@@ -4,7 +4,7 @@
 // report. Nothing here stores anything: files, answers and keys live only as long as the page.
 import {analyze, findSeed, iso, loadFiles, relay, type Loaded} from './browser.ts';
 import {JevClient, MODEL, type JevResponse} from './jev.ts';
-import {fingerprint, learn, SchemaCache, type Mapping, type StoredMapping} from './schema.ts';
+import {learn, SchemaCache, type StoredMapping} from './schema.ts';
 
 interface Access { endpoint: string; key?: string }
 type Message =
@@ -42,17 +42,9 @@ async function handle(message: Message) {
     loaded = null;
     const {access} = message;
     const cache = new SchemaCache({load: () => message.mappings, save: mapping => post({type: 'mapping', mapping})});
-    // Unknown schemas are learned with Jev only with the visitor's key: the demo key answers questions
-    // about the bundled example, which needs none.
+    // Unknown schemas are learned with Jev (the visitor's key, or the site's), once per event type; this
+    // browser remembers the mappings, so the same log source asks nothing next time.
     const learner = async (profiles: Parameters<typeof learn>[0]) => {
-      if (!access.key) {
-        const known = new Map<string, Mapping>();
-        for (const group of Object.values(profiles)) {
-          const m = cache.get(fingerprint(group));
-          if (m) known.set(group.key, {...m, group: group.key});
-        }
-        return known;
-      }
       post({type: 'progress', stage: 'learn', message: `Learning ${Object.keys(profiles).length} event types from an unknown schema with Jev…`});
       return learn(profiles, new JevClient(relay(access.endpoint, access.key), {answers: memory}), cache, MODEL, 'jev');
     };
@@ -80,7 +72,7 @@ async function handle(message: Message) {
     return response;
   }, {concurrency: 6, answers: memory, onRequest: (sha256, body) => requests.push({sha256, body: JSON.parse(body) as unknown})});
   const {report} = await analyze(data, key, client, {description: message.context, model: MODEL, threshold: 0.8, margin: 0.05, batchSize: 1,
-    maxRounds: 20, maxCandidatesPerRound: 2000, transport: message.access.key ? 'TypeSafe, your key, through this site\'s relay' : 'TypeSafe, demo key, through this site\'s relay',
+    maxRounds: 20, maxCandidatesPerRound: 2000, transport: message.access.key ? 'TypeSafe, your key, through this site\'s relay' : 'TypeSafe, this site\'s key, through its relay',
     onRound: (n, groups) => { round = n; post({type: 'progress', stage: 'round', round: n, questions: groups.length}); }});
   post({type: 'report', report, requests});
 }

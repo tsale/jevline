@@ -37,7 +37,7 @@
   function renderKeys() {
     const demo = state.jevMode === 'demo';
     $('jev-key-field').hidden = demo;
-    const jev = demo ? 'Demo key (bundled example only)' : state.keys.jev ? 'TypeSafe key entered' : 'TypeSafe key needed to analyze';
+    const jev = demo ? 'This site\'s free key' : state.keys.jev ? 'TypeSafe key entered' : 'TypeSafe key needed to analyze';
     $('key-status').textContent = `${jev} · ${state.keys.openrouter ? 'OpenRouter key entered' : 'OpenRouter key optional'}`;
     renderButtons();
   }
@@ -170,7 +170,7 @@
     if (summary.schemas.length) {
       const missing = summary.schemas.filter(s => s.learned === 'not learned').length;
       box.append(element('span', missing ? 'warn' : 'small', missing
-        ? `${plural(missing, 'event type')} from a log schema this site hasn't seen yet. Choose "My own TypeSafe key" and load the files again: Jev learns each event type once, with no mapping from you.`
+        ? `${plural(missing, 'event type')} from a log schema that couldn't be learned. Check the Jev access below and load the files again: Jev learns each event type once, with no mapping from you.`
         : ` Learned ${plural(learned.length, 'event type')} from an unknown schema with Jev${summary.schemas.some(s => s.learned === 'cache') ? ' (some remembered from earlier)' : ''}.`));
     }
     box.hidden = false;
@@ -214,10 +214,6 @@
     if (!state.summary || !seed) { setStatus('Load logs and choose the starting point first.', true); return; }
     if (!context) { setStatus('Add a sentence of analyst context: why the starting point is confirmed malicious.', true); return; }
     if (state.jevMode === 'own' && !state.keys.jev) { setStatus('Enter your TypeSafe API key first; nothing was sent.', true); return; }
-    if (state.jevMode === 'demo' && !state.exampleLoaded) {
-      setStatus('The demo key only analyzes the bundled lab example. Load it, or choose "My own TypeSafe key" to analyze your files; nothing was sent.', true);
-      return;
-    }
     resetResults();
     state.busy = true;
     renderButtons();
