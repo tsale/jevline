@@ -1,0 +1,22 @@
+{
+  "name": "jevline-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Jevline engine: incident reconstruction from one confirmed process, with Jev deciding every link.",
+  "type": "module",
+  "bin": {
+    "jevline": "src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "bench": "node bench/bench.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}
