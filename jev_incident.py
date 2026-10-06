@@ -2,7 +2,9 @@
 """Small Jev incident-linking experiment. No third-party dependencies."""
 
 import argparse
-from datetime import datetime, timezone
+from bisect import bisect_left
+from datetime import datetime, timedelta, timezone
+import gc
 import hashlib
 import json
 import os
@@ -58,8 +60,19 @@ def timestamp(value):
         return None
 
 
+def source_of(raw):
+    return raw.get("_source") or (fields_source(raw["fields"]) if isinstance(raw.get("fields"), dict) else raw)
+
+
+def event_id(raw, src=None):
+    """The event's own ID as compact() reads it ("" when it has none)."""
+    src = source_of(raw) if src is None else src
+    event = src.get("event") or {}
+    return str(raw.get("id") or raw.get("_id") or src.get("id") or event.get("id") or "")
+
+
 def compact(raw):
-    src = raw.get("_source") or (fields_source(raw["fields"]) if isinstance(raw.get("fields"), dict) else raw)
+    src = source_of(raw)
     proc = src.get("process") or {}
     event = src.get("event") or {}
     host = src.get("host") or {}
@@ -83,7 +96,7 @@ def compact(raw):
     elif proc.get("sha256"):
         selected_process["sha256"] = proc["sha256"]
     out = {
-        "id": str(raw.get("id") or raw.get("_id") or src.get("id") or event.get("id") or ""),
+        "id": event_id(raw, src),
         "time": src.get("@timestamp") or src.get("timestamp") or src.get("time"),
         "kind": src.get("kind") or category or event.get("dataset", ""),
         "action": action,
@@ -114,6 +127,306 @@ def is_execution(event):
     )
 
 
+# Input formats. Mirrored by ui/formats.js (tests/fixtures/formats_golden.json checks both).
+FORMATS = ("auto", "json", "ndjson", "csv", "text")
+BLANK = " \t\r\f\v"
+CSV_DELIMITERS = (",", "\t", ";", "|")
+CSV_HEADER = re.compile(r"[A-Za-z_@][A-Za-z0-9_.@ -]{0,99}")
+TEXT_TIME = re.compile(r"\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?")
+TEXT_PAIR = re.compile(r'(?:^|[ \t\f\v,;])([A-Za-z_@][A-Za-z0-9_.@-]*)=(?:"((?:[^"\\]|\\.)*)"|([^ \t\f\v,;]*))')
+# Column and key names of common Windows, Sysmon, Splunk and EDR exports, compared lower-case
+# without spaces, "_" or "-", and the ECS field each one fills. Dotted names are used as written.
+ALIASES = {
+    **dict.fromkeys(("@timestamp", "timestamp", "time", "utctime", "timecreated", "systemtime", "eventtime",
+                     "datetime", "dateandtime", "date", "timegenerated"), "@timestamp"),
+    **dict.fromkeys(("host", "hostname", "computer", "computername", "device", "devicename", "workstation"), "host.name"),
+    **dict.fromkeys(("user", "username", "accountname", "subjectusername"), "user.name"),
+    **dict.fromkeys(("image", "newprocessname", "processname", "processpath", "exe", "executable"), "process.executable"),
+    **dict.fromkeys(("commandline", "cmdline", "processcommandline", "command"), "process.command_line"),
+    **dict.fromkeys(("processid", "pid", "newprocessid"), "process.pid"),
+    **dict.fromkeys(("processguid", "processentityid"), "process.entity_id"),
+    **dict.fromkeys(("sha256", "processsha256"), "process.hash.sha256"),
+    **dict.fromkeys(("parentimage", "parentprocessname", "parentprocesspath"), "process.parent.executable"),
+    **dict.fromkeys(("parentcommandline", "parentprocesscommandline"), "process.parent.command_line"),
+    **dict.fromkeys(("parentprocessid", "ppid", "creatorprocessid"), "process.parent.pid"),
+    "parentprocessguid": "process.parent.entity_id",
+    **dict.fromkeys(("targetfilename", "filepath", "file"), "file.path"),
+    **dict.fromkeys(("destinationip", "dstip", "destip", "destinationaddress"), "destination.ip"),
+    **dict.fromkeys(("destinationport", "dstport", "destport"), "destination.port"),
+    **dict.fromkeys(("destinationhostname", "destinationhost", "dsthost"), "destination.domain"),
+    **dict.fromkeys(("sourceip", "srcip"), "source.ip"),
+    **dict.fromkeys(("sourceport", "srcport"), "source.port"),
+    **dict.fromkeys(("queryname", "dnsquery"), "dns.question.name"),
+    **dict.fromkeys(("targetobject", "registrypath", "registrykey"), "registry.path"),
+    "targetimage": "target.image", "targetprocessguid": "target.entity_id",
+    **dict.fromkeys(("eventid", "eventcode"), "event.code"),
+    **dict.fromkeys(("action", "eventaction"), "event.action"),
+    **dict.fromkeys(("category", "eventcategory"), "event.category"),
+    "eventtype": "event.type",
+    **dict.fromkeys(("channel", "logname", "source"), "winlog.channel"),
+    **dict.fromkeys(("provider", "providername", "sourcename"), "event.provider"),
+    **dict.fromkeys(("sourcetype", "dataset"), "event.dataset"),
+    **dict.fromkeys(("message", "msg"), "message"),
+}
+INTEGER_FIELDS = ("process.pid", "process.parent.pid", "destination.port", "source.port")
+
+
+def _blank(line):
+    return not line.strip(BLANK)
+
+
+def _put(record, path, value):
+    """Set a dotted path; the first value for a field wins and never overwrites a parent."""
+    keys = path.split(".")
+    for key in keys[:-1]:
+        if key not in record:
+            record[key] = {}
+        elif not isinstance(record[key], dict):
+            return
+        record = record[key]
+    record.setdefault(keys[-1], value)
+
+
+def _basename(path):
+    parts = [p for p in re.split(r"[\\/]", path) if p]
+    return parts[-1] if parts else path
+
+
+def flat_event(pairs):
+    """One event from (name, text value) pairs of a CSV row or a key=value log line."""
+    record, hashes = {}, None
+    for name, value in pairs:
+        if value == "":
+            continue
+        key = re.sub(r"[ _-]", "", name.lower())
+        if key == "hashes" and hashes is None:
+            hashes = value
+        path = name if "." in name or name == "@timestamp" else ALIASES.get(key, name)
+        if path in INTEGER_FIELDS:
+            if re.fullmatch(r"[0-9]{1,15}", value):
+                value = int(value)
+            elif re.fullmatch(r"0[xX][0-9a-fA-F]{1,12}", value):
+                value = int(value, 16)
+        _put(record, path, value)
+    process = record.get("process")
+    if isinstance(process, dict):
+        if isinstance(process.get("executable"), str):
+            _put(record, "process.name", _basename(process["executable"]))
+        if isinstance(process.get("parent"), dict) and isinstance(process["parent"].get("executable"), str):
+            _put(record, "process.parent.name", _basename(process["parent"]["executable"]))
+    if hashes is not None:
+        match = re.search(r"(?:^|,)[ \t]*SHA256=([0-9A-Fa-f]{64})", hashes)
+        if match:
+            _put(record, "process.hash.sha256", match.group(1).lower())
+    # A Windows process creation (Security 4688, Sysmon 1) is a process start unless the row says otherwise.
+    event = record.get("event")
+    if isinstance(event, dict) and "category" not in event and event.get("code") is not None:
+        winlog = record.get("winlog") if isinstance(record.get("winlog"), dict) else {}
+        origin = " ".join(str(x) for x in (winlog.get("channel"), event.get("provider"), event.get("dataset"))
+                          if isinstance(x, str)).lower()
+        code = str(event["code"])
+        if code == "4688" or (code == "1" and "sysmon" in origin):
+            _put(record, "event.category", ["process"])
+            _put(record, "event.type", ["start"])
+    return record
+
+
+def _csv_split(text, delimiter, state=None):
+    """Fields of one physical line; state carries an open quoted field into the next line."""
+    fields, field, quoted, start = (state or ([], "", False, True))
+    i, end = 0, len(text)
+    while i < end:
+        if quoted:  # Up to the next quote: "" is a literal quote, a single one closes the field.
+            j = text.find('"', i)
+            if j < 0:
+                field += text[i:]
+                break
+            field += text[i:j]
+            if text[j + 1:j + 2] == '"':
+                field += '"'
+                i = j + 2
+            else:
+                quoted, i = False, j + 1
+        elif start and text[i] == '"':  # Only a quote that opens a field starts quoting.
+            quoted, start, i = True, False, i + 1
+        else:  # Up to the next delimiter; any quote in between is literal.
+            j = text.find(delimiter, i)
+            field += text[i:end if j < 0 else j]
+            if j < 0:
+                start = False
+                break
+            fields.append(field)
+            field, start, i = "", True, j + 1
+    return fields, field, quoted, start
+
+
+def csv_header(line):
+    """(delimiter, column names) when a first line reads as a CSV/TSV header, else None."""
+    counts = [(len(_csv_split(line, d)[0]), d) for d in CSV_DELIMITERS]
+    best = max(n for n, _ in counts)
+    if best == 0:
+        return None
+    delimiter = next(d for n, d in counts if n == best)
+    fields, last, quoted, _ = _csv_split(line, delimiter)
+    names = [name.strip(" \t") for name in fields + [last]]
+    if quoted or len(set(names)) != len(names) or not all(CSV_HEADER.fullmatch(name) for name in names):
+        return None
+    # Names with spaces ("Event ID") need three columns, so a sentence with a comma stays plain text.
+    if len(names) < 3 and any(" " in name for name in names):
+        return None
+    return delimiter, names
+
+
+def detect_format(first_line):
+    line = first_line.lstrip(BLANK)
+    # An events array opens with "[{", "[]" or a bare "["; "[2026-09-21 ...] ..." is a text log.
+    if line.startswith("[") and line[1:].lstrip(BLANK)[:1] in ("", "{", "]"):
+        return "json"
+    if line.startswith("{"):
+        try:
+            return "ndjson" if isinstance(json.loads(line), dict) else "json"
+        except ValueError:
+            return "json"  # A JSON document spread over several lines.
+    return "csv" if csv_header(line) else "text"
+
+
+def _wrapped(data):
+    """The events inside {"events": [...]} or an Elasticsearch search response, else None."""
+    if isinstance(data.get("events"), list):
+        return data["events"]
+    hits = data.get("hits")
+    return hits["hits"] if isinstance(hits, dict) and isinstance(hits.get("hits"), list) else None
+
+
+def _unwrap(data):
+    if isinstance(data, dict):
+        wrapped = _wrapped(data)
+        return [data] if wrapped is None else wrapped
+    if isinstance(data, list):
+        return data
+    raise ValueError("JSON input must be an array of events or an object with an events array")
+
+
+def _numbered(events, label):
+    """Give events without an id, _id or event.id a stable one from their place in the input."""
+    out = []
+    for number, raw in events:
+        if not isinstance(raw, dict):
+            raise ValueError(f"{label} {number} is not a JSON object")
+        if not event_id(raw):
+            raw["id"] = f"{label}-{number}"
+        out.append(raw)
+    return out
+
+
+def parse_lines(lines, fmt="auto"):
+    """Events from the lines of a log file (without line endings), in input order.
+
+    fmt is one of FORMATS. "auto" reads the first non-blank line: "[" or a multi-line "{" is a
+    JSON document (an events array, {"events": [...]}, or a search response), a one-line JSON
+    object starts NDJSON, a header row of field names starts CSV/TSV, and anything else is plain
+    text, one event per line. Events without an ID get "line-N" (their first line in the file)
+    or, inside a JSON document, "event-N".
+    """
+    if fmt not in FORMATS:
+        raise ValueError(f"format must be one of {', '.join(FORMATS)}")
+    lines = (line.rstrip("\r") for line in lines)
+    head = []
+    for line in lines:
+        if not head:
+            line = line.lstrip("\ufeff")
+        head.append(line)
+        if not _blank(line):
+            break
+    if not head or _blank(head[-1]):
+        raise ValueError("input contains no events")
+    numbered = enumerate(head + [None], 1)
+    def remaining():
+        for number, line in numbered:
+            if line is not None:
+                yield number, line
+        for number, line in enumerate(lines, len(head) + 1):
+            yield number, line
+    if fmt == "auto":
+        fmt = detect_format(head[-1])
+    if fmt == "json":
+        try:
+            data = json.loads("\n".join(line for _, line in remaining()))
+        except ValueError as exc:
+            raise ValueError(f"not valid JSON: {exc}") from None
+        return _numbered(enumerate(_unwrap(data), 1), "event")
+    if fmt == "ndjson":
+        events = []
+        for number, line in remaining():
+            if _blank(line):
+                continue
+            try:
+                events.append((number, json.loads(line)))
+            except ValueError as exc:
+                raise ValueError(f"line {number} is not valid JSON: {exc}") from None
+        wrapped = _wrapped(events[0][1]) if len(events) == 1 and isinstance(events[0][1], dict) else None
+        if wrapped is not None:  # A one-line {"events": [...]} document.
+            return _numbered(enumerate(wrapped, 1), "event")
+        return _numbered(events, "line")
+    if fmt == "csv":
+        rows = remaining()
+        header = None
+        for number, line in rows:
+            if not _blank(line):
+                header = csv_header(line)
+                break
+        if header is None:
+            raise ValueError("first line is not a CSV header of field names")
+        delimiter, names = header
+        events, state, start = [], None, None
+        for number, line in rows:
+            if state is None and _blank(line):
+                continue
+            start = number if state is None else start
+            fields, field, quoted, at_start = _csv_split(line, delimiter, state)
+            if quoted:
+                state = (fields, field + "\n", quoted, at_start)
+                continue
+            state = None
+            values = fields + [field]
+            events.append((start, flat_event(zip(names, values))))
+        if state is not None:
+            raise ValueError(f"line {start} opens a quoted CSV field that never closes")
+        return _numbered(events, "line")
+    events = []
+    for number, line in remaining():
+        if _blank(line):
+            continue
+        pairs = [(name, quoted.replace('\\"', '"') if quoted else bare) for name, quoted, bare in TEXT_PAIR.findall(line)]
+        stamp = TEXT_TIME.match(line)
+        pairs += [("@timestamp", stamp.group(1))] if stamp else []
+        events.append((number, flat_event([("message", line)] + pairs)))
+    return _numbered(events, "line")
+
+
+def parse_log_text(text, fmt="auto"):
+    return parse_lines(text.split("\n"), fmt)
+
+
+def load_events(path, fmt="auto"):
+    """Events from a log file, read line by line (see parse_lines).
+
+    The cyclic garbage collector is paused while parsing and the result is frozen: parsed events
+    hold no reference cycles, and on a large export the collector otherwise repeatedly walks every
+    event already loaded (about two thirds of the load time for 300,000 events).
+    """
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        with open(path, encoding="utf-8", newline="\n") as stream:
+            events = parse_lines((line[:-1] if line.endswith("\n") else line for line in stream), fmt)
+        gc.freeze()
+        return events
+    finally:
+        if enabled:
+            gc.enable()
+
+
 def related_evidence(candidate, other):
     """Select context, not verdicts. Avoid PID-only joins when entity IDs exist."""
     a, b = candidate.get("process", {}), other.get("process", {})
@@ -136,6 +449,100 @@ def context(events, candidate, limit=8):
         a = timestamp(e.get("time")); b = timestamp(candidate.get("time"))
         return abs((a - b).total_seconds()) if a and b else float("inf")
     return sorted(matches, key=rank)[:limit]
+
+
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+WINDOW_MICROSECONDS = 600 * 10**6
+
+
+def micros(value):
+    """timestamp() as exact integer microseconds since the epoch, or None."""
+    parsed = timestamp(value)
+    return None if parsed is None else (parsed - EPOCH) // timedelta(microseconds=1)
+
+
+def _host_key(host):
+    try:
+        hash(host)
+        return host
+    except TypeError:  # A list or object host still matches an equal one.
+        return ("json", json.dumps(host, sort_keys=True))
+
+
+def _entity_ids(event):
+    process = event.get("process", {})
+    parent = process.get("parent", {}) if isinstance(process.get("parent"), dict) else {}
+    return {str(x) for x in (process.get("entity_id"), parent.get("entity_id")) if x}
+
+
+class ContextIndex:
+    """context() for many candidates without rescanning every event for each one.
+
+    Returns exactly what context(events, candidate) returns, ties included: events on the
+    candidate's host that share a process or parent entity ID, or lie within 600 seconds,
+    nearest first, then in input order. Timestamps are parsed once, entity IDs are looked up
+    in a dictionary and the time window is found by binary search per host.
+    """
+
+    def __init__(self, events):
+        self.events = events
+        self.times = [micros(e.get("time")) for e in events]
+        self.by_entity = {}
+        timed = {}
+        for index, event in enumerate(events):
+            if not event.get("host"):
+                continue  # related_evidence() never matches a hostless event.
+            host = _host_key(event["host"])
+            for entity in _entity_ids(event):
+                self.by_entity.setdefault((host, entity), []).append(index)
+            if self.times[index] is not None:
+                timed.setdefault(host, []).append((self.times[index], index))
+        self.by_time = {}
+        for host, pairs in timed.items():
+            pairs.sort()
+            self.by_time[host] = ([t for t, _ in pairs], [i for _, i in pairs])
+
+    def _nearest(self, host, t, limit, candidate_id):
+        """Indexes of same-host events within the window, nearest first, through every tie
+        at the limit-th distance (the candidate itself excluded)."""
+        times, order = self.by_time.get(host, ((), ()))
+        right = bisect_left(times, t)
+        left = right - 1
+        found, bound = [], None
+        while True:
+            left_gap = t - times[left] if left >= 0 else None
+            right_gap = times[right] - t if right < len(times) else None
+            if left_gap is None and right_gap is None:
+                break
+            if right_gap is None or (left_gap is not None and left_gap <= right_gap):
+                gap, index = left_gap, order[left]
+                left -= 1
+            else:
+                gap, index = right_gap, order[right]
+                right += 1
+            if gap > WINDOW_MICROSECONDS or (bound is not None and gap > bound):
+                break
+            if self.events[index]["id"] != candidate_id:
+                found.append(index)
+                if len(found) == limit:
+                    bound = gap
+        return found
+
+    def context(self, candidate, limit=8):
+        if not candidate.get("host"):
+            return []
+        host = _host_key(candidate["host"])
+        t = micros(candidate.get("time"))
+        picked = set()
+        for entity in _entity_ids(candidate):
+            picked.update(self.by_entity.get((host, entity), ()))
+        if t is not None:
+            picked.update(self._nearest(host, t, limit, candidate["id"]))
+        picked = [i for i in picked if self.events[i]["id"] != candidate["id"]]
+        def rank(i):
+            gap = abs(self.times[i] - t) if t is not None and self.times[i] is not None else float("inf")
+            return gap, i
+        return [self.events[i] for i in sorted(picked, key=rank)[:limit]]
 
 
 def retryable(exc):
@@ -229,6 +636,7 @@ def run(events, seed_id, description, judge, threshold=0.8, observer=None, looku
     seed = by_id[seed_id]
     candidates = [e for e in events if e["id"] != seed_id and is_execution(e)]
     candidates.sort(key=lambda e: (timestamp(e.get("time")) or datetime.min.replace(tzinfo=timezone.utc), e["id"]))
+    index = ContextIndex(events)
     known = [seed]
     results = {seed_id: {"id": seed_id, "execution": seed.get("process", {}).get("name", seed_id), "related": True, "probability": 1.0, "reason": "Confirmed starting execution (user-provided)"}}
     # Reconsider negatives once after new high-confidence links are discovered.
@@ -241,7 +649,7 @@ def run(events, seed_id, description, judge, threshold=0.8, observer=None, looku
                 break
             state = {"seed_description": description, "seed": seed,
                      "known_related": known[1:][-6:], "candidate": e,
-                     "surrounding": context(events, e)}
+                     "surrounding": index.context(e)}
             answer = lookup(pass_number + 1, state) if lookup is not None else None
             probability, evidence = answer if answer is not None else judge(state)
             related = probability >= threshold
@@ -351,6 +759,14 @@ def answered_utc(record):
     return value if isinstance(value, str) else None
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def recorded_run(events, seed_id, description, key, model, threshold, run_dir, telemetry_file, resume_from=None,
                  run_info=None):
     """Keep every API attempt and each final related event in a private run directory.
@@ -444,7 +860,7 @@ def recorded_run(events, seed_id, description, key, model, threshold, run_dir, t
     elapsed = perf_counter() - started
     evidence_dir = run_dir / "evidence"
     evidence_dir.mkdir(mode=0o700)
-    source_events = {compact(e)["id"]: e for e in events}
+    source_events = {event_id(e): e for e in events}
     private_json(evidence_dir / "seed.json", {"confirmed_by_user": True,
                  "event": compact(source_events[seed_id]), "source_event": source_events[seed_id]})
     for index, row in enumerate(rows[1:], 1):
@@ -467,14 +883,16 @@ def recorded_run(events, seed_id, description, key, model, threshold, run_dir, t
                "request_bytes": sum(a["request_bytes"] or 0 for a in fresh),
                "seed_id": seed_id, "model_requested": model, "threshold": threshold,
                "evidence_dir": str(evidence_dir), "telemetry_file": str(telemetry_file),
-               "telemetry_sha256": hashlib.sha256(Path(telemetry_file).read_bytes()).hexdigest()}
+               "telemetry_sha256": file_sha256(telemetry_file)}
     private_json(run_dir / "summary.json", summary)
     return rows, summary
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("telemetry", type=Path, help="JSON array or object with events array")
+    parser.add_argument("telemetry", type=Path, help="log file: JSON array or {\"events\": [...]}, NDJSON, CSV/TSV with a "
+                        "header row, or plain text with one event per line")
+    parser.add_argument("--format", choices=FORMATS, default="auto", help="input format (default: detected from the first line)")
     parser.add_argument("--seed-id", required=True, help="exact event id of confirmed execution")
     parser.add_argument("--description", required=True, help="short confirmed-malicious starting context")
     parser.add_argument("--threshold", type=float, default=0.8)
@@ -489,13 +907,9 @@ def main():
     if args.resume_run and not args.run_dir:
         parser.error("--resume-run requires a new --run-dir for the resumed run")
     try:
-        data = json.loads(args.telemetry.read_text(encoding="utf-8"))
+        data = load_events(args.telemetry, args.format)
     except (OSError, ValueError) as exc:
-        parser.error(f"cannot read telemetry JSON from {args.telemetry}: {exc}")
-    if isinstance(data, dict):
-        data = data.get("events")
-    if not isinstance(data, list):
-        parser.error("telemetry must be a JSON array of events or an object with an events array")
+        parser.error(f"cannot read events from {args.telemetry}: {exc}")
     try:
         key = find_key("TYPESAFE_API_KEY", args.key_file)
     except (OSError, ValueError) as exc:

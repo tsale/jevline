@@ -68,11 +68,11 @@ function build(out, repoUrl, stars = null) {
     .replaceAll('{{REPO_NAME}}', escapeHtml(repositorySlug(repoUrl) || repoUrl))
     .replaceAll('{{REPO_URL}}', escapeHtml(repoUrl));
   fs.writeFileSync(path.join(out, 'index.html'), filled);
-  for (const name of ['app.js', 'engine.js', 'styles.css']) fs.copyFileSync(path.join(ROOT, 'ui', name), path.join(out, name));
+  for (const name of ['app.js', 'engine.js', 'formats.js', 'styles.css']) fs.copyFileSync(path.join(ROOT, 'ui', name), path.join(out, name));
   // Loaded as a script, so the page's connection policy needs nothing extra for it.
   const example = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'malicious_events.json'), 'utf8'));
   fs.writeFileSync(path.join(out, 'examples', 'malicious_events.js'), `window.CASEBENCH_EXAMPLE = ${JSON.stringify(example)};\n`);
-  return ['index.html', 'app.js', 'engine.js', 'styles.css', 'examples/malicious_events.js'];
+  return ['index.html', 'app.js', 'engine.js', 'formats.js', 'styles.css', 'examples/malicious_events.js'];
 }
 
 async function main(argv) {

@@ -62,7 +62,7 @@
   }
   function parseEvents(input) {
     const events = Array.isArray(input) ? input : object(input) ? input.events : null;
-    if (!Array.isArray(events) || !events.length || events.length > 500) throw Error('Expected 1–500 event objects in a JSON array or an object containing an events array.');
+    if (!Array.isArray(events) || !events.length || events.length > 500) throw Error(`Expected 1–500 events; found ${Array.isArray(events) ? events.length : 'none'}.`);
     const ids = new Set();
     return events.map((raw, index) => {
       if (!object(raw)) throw Error(`Event ${index + 1} is not an object.`);
@@ -803,7 +803,8 @@
   async function loadFile(file) {
     if (!file) return;
     if (file.size > MAX_BYTES) { setStatus('File exceeds the 2 MiB limit; nothing loaded.', true); return; }
-    try { load(JSON.parse(await file.text()), file.name); }
+    // JSON, NDJSON, CSV/TSV or plain text (ui/formats.js, the same parser as the command line).
+    try { load(JevFormats.parse(await file.text()), file.name); }
     catch (error) { setStatus(`Import failed: ${error.message}`, true); }
   }
   for (const id of PAGES) $(`nav-${id}`).addEventListener('click', () => page(id));

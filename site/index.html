@@ -51,12 +51,12 @@
 
         <div class="setup-grid">
           <section class="panel" aria-labelledby="source-title">
-            <div class="panel-head"><h2 id="source-title">Source events</h2><span class="small">JSON · 1–500 events · 2 MiB max</span></div>
+            <div class="panel-head"><h2 id="source-title">Source events</h2><span class="small">JSON, NDJSON, CSV or text · 1–500 events · 2 MiB max</span></div>
             <div class="panel-body">
-              <div id="drop" class="drop" role="group" aria-label="Drop JSON telemetry here">
-                <div class="drop-copy"><strong>Drop a JSON export here</strong><span>Process, file, network or registry events</span></div>
+              <div id="drop" class="drop" role="group" aria-label="Drop a log file here">
+                <div class="drop-copy"><strong>Drop a log file here</strong><span>JSON, NDJSON, CSV/TSV or plain text, one event per line</span></div>
                 <button id="choose" class="button" type="button">Choose file</button>
-                <input id="file" type="file" accept=".json,application/json" hidden>
+                <input id="file" type="file" accept=".json,.ndjson,.jsonl,.csv,.tsv,.log,.txt,application/json,text/csv,text/plain" hidden>
               </div>
               <div class="source-line"><span id="source" class="small">No events loaded</span><button id="preview" class="button subtle" type="button">Load bundled malicious-events example</button></div>
               <div class="field-grid">
@@ -153,6 +153,7 @@
     </main>
   </div>
   <script src="engine.js" defer></script>
+  <script src="formats.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

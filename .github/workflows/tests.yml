@@ -26,3 +26,19 @@ jobs:
           node tests/test_build_site.js
       - name: Website build
         run: node scripts/build_site.js
+
+  engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Engine tests (parsing, identity, links, reproducibility, Jev client, CLI)
+        run: npm test

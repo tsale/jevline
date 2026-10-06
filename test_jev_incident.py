@@ -14,8 +14,29 @@ import jev_incident as poc
 
 SAMPLE = Path(__file__).parent / "tests" / "fixtures" / "synthetic.json"
 GOLDEN = Path(__file__).parent / "tests" / "fixtures" / "engine_golden.json"
+FORMATS_DIR = SAMPLE.parent / "formats"
+FORMATS_GOLDEN = SAMPLE.parent / "formats_golden.json"
 GOLDEN_FIXTURES = {"synthetic": (SAMPLE, "seed"), "edge_cases": (SAMPLE.parent / "edge_cases.json", "seed"),
-                   "malicious_events": (Path(__file__).parent / "examples" / "malicious_events.json", "VvT8xKABOYkemEz9sgQR")}
+                   "malicious_events": (Path(__file__).parent / "examples" / "malicious_events.json", "VvT8xKABOYkemEz9sgQR"),
+                   "sysmon_csv": (FORMATS_DIR / "sysmon.csv", "line-2")}
+# Inline inputs for the format loader; ui/test_engine.js replays them from formats_golden.json.
+FORMAT_CASES = [
+    ("", "auto"), ("   \n\t\n", "auto"),
+    ('{"events": []}', "auto"), ('{"events": [{"_id": "a"}, {"x": 1}]}', "auto"),
+    ('{\n "events": [{"a": 1}]\n}', "auto"), ('[\n {"a": 1},\n {"id": 7}\n]', "auto"), ('{"a": 1}', "auto"),
+    ("[1, 2]", "json"), ('{"a": 1}\n[1]\n', "auto"), ('{"a": 1}\n{bad\n', "auto"), ("5", "json"),
+    ("a sentence, with a comma\nanother line\n", "auto"), ("[2026-09-21 17:18:50] service started\n", "auto"),
+    ("alpha,beta\n1,2\n", "auto"), ("Event ID,Date and Time,Level\n4688,2026-01-01 00:00:00,Info\n", "auto"),
+    ('a,b\n"open\n', "auto"), ('a;b;c\n"x;y";"he said ""hi""";z\n', "auto"), ("a|b\n1|2|3\n4\n", "auto"),
+    ('a,b\nx"y",z\n" q" r,s\n', "auto"), ("id,process.name\n,cmd.exe\nown-id,x.exe\n", "auto"),
+    ("Image,process.executable\nC:\\a.exe,C:\\b.exe\n", "auto"), ("process,process.name\nscalar,cmd.exe\n", "auto"),
+    ("__proto__,constructor\n1,2\n", "auto"), ("pid,ppid,DestinationPort\n12x,0X1f,1234567890123456\n", "auto"),
+    ("EventID,Channel,Image\n1,Microsoft-Windows-Sysmon/Operational,C:\\x\\y.exe\n1,System,C:\\x\\z.exe\n", "auto"),
+    ("EventID,Category,Image\n4688,custom,C:\\x.exe\n", "auto"),
+    ('x=1 y="a b" z="say \\"hi\\"" w= empty=""\n', "text"), ('{"a": 1}\n', "text"), ("a,b\n1,2\n", "text"),
+    ("2026-09-21T17:18:50+0200 time=2026-01-01T00:00:00Z msg\n", "auto"), ("\ufeff\ufeffkey=value\r\n\r\n", "auto"),
+    ("one\rtwo\n", "auto"), ("a,b\n1,2\n", "yaml"),
+]
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -45,8 +66,7 @@ def engine_golden():
 
     golden = {}
     for name, (path, seed) in GOLDEN_FIXTURES.items():
-        data = json.loads(path.read_text(encoding="utf-8"))
-        events = data["events"] if isinstance(data, dict) else data
+        events = poc.parse_log_text(path.read_text(encoding="utf-8"))
         compacted = [poc.compact(e) for e in events]
         requests = []
         results = poc.run(events, seed, "Analyst-confirmed seed.", golden_judge,
@@ -65,8 +85,21 @@ def engine_golden():
     return golden
 
 
+def formats_golden():
+    """Parsed events for every fixture in tests/fixtures/formats and FORMAT_CASES (None: rejected)."""
+    def parse(text, fmt):
+        try:
+            return poc.parse_log_text(text, fmt)
+        except ValueError:
+            return None
+    return {"files": {path.name: poc.parse_log_text(path.read_text(encoding="utf-8"))
+                      for path in sorted(FORMATS_DIR.iterdir())},
+            "cases": [{"text": text, "format": fmt, "events": parse(text, fmt)} for text, fmt in FORMAT_CASES]}
+
+
 def write_golden():
     GOLDEN.write_text(json.dumps(engine_golden(), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    FORMATS_GOLDEN.write_text(json.dumps(formats_golden(), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 class IncidentTests(unittest.TestCase):
@@ -420,6 +453,99 @@ class RetryTests(unittest.TestCase):
 
 
 class EngineGoldenTests(unittest.TestCase):
+    def test_context_index_matches_reference_scan(self):
+        # Ties, missing times and hosts, list/object hosts and entity links far apart in time.
+        import random
+        rng = random.Random(7)
+        base = 1_700_000_000_000
+        def event(i):
+            e = {"id": f"e{i}", "process": {}}
+            if rng.random() < 0.85:
+                e["host"] = rng.choice(["A", "B", ["A"], {"n": 1}, 1, True])
+            if rng.random() < 0.9:
+                e["time"] = rng.choice([base + rng.randint(0, 2_000_000), base + rng.choice([0, 600_000, -600_000, 600_001]),
+                                        "2023-11-14T22:13:20Z", "2023-11-14T22:23:20.000001Z", "bad", None])
+            if rng.random() < 0.7:
+                e["process"]["entity_id"] = rng.choice(["x", "y", 0, 5, ""])
+            if rng.random() < 0.5:
+                e["process"]["parent"] = {"entity_id": rng.choice(["x", "y", 5, None])}
+            return e
+        for _ in range(150):
+            events = [event(i) for i in range(rng.randint(1, 60))]
+            index = poc.ContextIndex(events)
+            for candidate in events:
+                for limit in (1, 3, 8):
+                    self.assertEqual([e["id"] for e in index.context(candidate, limit)],
+                                     [e["id"] for e in poc.context(events, candidate, limit)])
+
+    def test_formats_reference_matches_python(self):
+        # ui/test_engine.js checks ui/formats.js against the same file.
+        self.assertEqual(json.loads(FORMATS_GOLDEN.read_text(encoding="utf-8")), formats_golden(),
+                         'parse_lines changed; if intended run: python3 -c "import test_jev_incident as t; t.write_golden()"')
+
+    def test_load_events_reads_ndjson_line_by_line(self):
+        sample = json.loads(SAMPLE.read_text())["events"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "export.ndjson"
+            lines = [json.dumps(e) for e in sample]
+            lines[1] = json.dumps({k: v for k, v in sample[1].items() if k != "id"})
+            path.write_bytes(("\ufeff" + "\r\n".join(lines[:2]) + "\r\n\r\n" + "\r\n".join(lines[2:])).encode())
+            gc_was_enabled = poc.gc.isenabled()
+            events = poc.load_events(path)
+            self.assertEqual(poc.gc.isenabled(), gc_was_enabled)
+        self.assertEqual([poc.event_id(e) for e in events], ["seed", "line-2"] + [e["id"] for e in sample[2:]])
+        self.assertEqual(events[2:], sample[2:])
+
+    def test_csv_columns_become_ecs_process_starts(self):
+        events = {e["id"]: e for e in poc.load_events(FORMATS_DIR / "sysmon.csv")}
+        seed, security, child, shell = events["line-2"], events["line-3"], events["line-6"], events["line-9"]
+        self.assertEqual(seed["process"]["name"], "2.8.exe")
+        self.assertEqual(seed["process"]["parent"], {"executable": "C:\\Windows\\explorer.exe", "entity_id": "{26BBF027-5E3E-6AB1-CF07-000000005C00}",
+                                                     "pid": 7412, "command_line": "C:\\Windows\\Explorer.EXE", "name": "explorer.exe"})
+        self.assertEqual(seed["process"]["hash"]["sha256"], "441627232462ff8f33eb995a2ec1cb53077a3a47699ce3bf6a9b320fa7c1fb40")
+        self.assertEqual((security["process"]["pid"], security["process"]["parent"]["pid"]), (8788, 0x1CF4))
+        self.assertEqual(security["process"]["command_line"], '"C:\\Users\\helena.cardenas\\Downloads\\2.8.exe" ')
+        self.assertEqual(shell["process"]["command_line"], 'cmd.exe /c "echo line one\necho line two"')  # quoted line break
+        self.assertEqual(events["line-7"]["destination"], {"ip": "203.0.113.50", "port": 443})
+        starts = [i for i, e in events.items() if poc.is_execution(poc.compact(e))]
+        self.assertEqual(starts, ["line-2", "line-3", "line-6", "line-9", "line-11", "line-12"])
+        index = poc.ContextIndex([poc.compact(e) for e in events.values()])
+        # The child's own network and DNS events, its parent's file write and its own child, nearest first.
+        self.assertEqual([e["id"] for e in index.context(poc.compact(child))], ["line-7", "line-8", "line-9", "line-5", "line-2", "line-3"])
+
+    def test_text_lines_keep_the_line_and_its_key_values(self):
+        first, second, plain, last = poc.load_events(FORMATS_DIR / "app.log")
+        self.assertEqual(first["process"], {"executable": "C:\\Program Files\\App\\run.exe",
+                                            "command_line": 'run.exe --flag "quoted"', "pid": 400, "name": "run.exe"})
+        self.assertTrue(poc.is_execution(poc.compact(first)))  # EventID=4688
+        self.assertEqual(second["@timestamp"], "2026-09-21 17:18:52.250+00:00")
+        self.assertEqual(plain, {"message": "plain message with no fields at all, just words", "id": "line-3"})
+        self.assertEqual(last["destination"], {"ip": "198.51.100.7", "port": 8443})
+
+    def test_loader_errors_name_the_line(self):
+        for text, message in (('{"a": 1}\n\n{bad\n', "line 3 is not valid JSON"), ('{"a": 1}\n[1]\n', "line 2 is not a JSON object"),
+                              ('a,b\n1,2\n"open,\n', "line 3 opens a quoted CSV field"), ('[{"a": 1}, 2]', "event 2 is not a JSON object"),
+                              (" \n", "no events")):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, message):
+                poc.parse_log_text(text)
+
+    def test_cli_reads_every_format(self):
+        def answer(state, key, model, metadata=None, on_failure=None):
+            return (0.9, "lineage") if state["candidate"]["process"].get("name") == "stage.exe" else (0.1, "no_link")
+        cases = [(FORMATS_DIR / "kibana.tsv", "line-2", []), (FORMATS_DIR / "events.ndjson", "line-1", []),
+                 (FORMATS_DIR / "app.log", "line-2", ["--format", "text"]), (SAMPLE, "seed", [])]
+        for path, seed, extra in cases:
+            argv = ["jev_incident.py", str(path), "--seed-id", seed, "--description", "x", *extra]
+            with self.subTest(path=path.name), patch.object(poc.sys, "argv", argv), patch.object(poc, "jev", answer), \
+                    patch.dict(os.environ, {"TYPESAFE_API_KEY": "k"}), patch("sys.stdout", new_callable=io.StringIO) as out:
+                poc.main()
+                self.assertRegex(out.getvalue(), r"stage\.exe \([^)]+\)\s+YES")
+        argv = ["jev_incident.py", str(SAMPLE), "--seed-id", "seed", "--description", "x", "--format", "csv"]
+        with patch.object(poc.sys, "argv", argv), patch("sys.stderr", new_callable=io.StringIO) as err, \
+                patch.dict(os.environ, {"TYPESAFE_API_KEY": "k"}), self.assertRaises(SystemExit):
+            poc.main()
+        self.assertIn("not a CSV header", err.getvalue())
+
     def test_browser_engine_reference_matches_python(self):
         # ui/test_engine.js checks the JavaScript port against the same file.
         self.assertEqual(json.loads(GOLDEN.read_text(encoding="utf-8")), engine_golden(),

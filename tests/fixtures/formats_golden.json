@@ -1,0 +1,936 @@
+{
+ "files": {
+  "app.log": [
+   {
+    "message": "2026-09-21T17:18:50Z host=WS-01 EventID=4688 Image=\"C:\\Program Files\\App\\run.exe\" CommandLine=\"run.exe --flag \\\"quoted\\\"\" pid=0x190 user=alice",
+    "host": {
+     "name": "WS-01"
+    },
+    "event": {
+     "code": "4688",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "process": {
+     "executable": "C:\\Program Files\\App\\run.exe",
+     "command_line": "run.exe --flag \"quoted\"",
+     "pid": 400,
+     "name": "run.exe"
+    },
+    "user": {
+     "name": "alice"
+    },
+    "@timestamp": "2026-09-21T17:18:50Z",
+    "id": "line-1"
+   },
+   {
+    "message": "[2026-09-21 17:18:52.250+00:00] host=WS-01 kind=execution process.name=stage.exe process.entity_id=proc-child process.parent.entity_id=proc-seed",
+    "host": {
+     "name": "WS-01"
+    },
+    "kind": "execution",
+    "process": {
+     "name": "stage.exe",
+     "entity_id": "proc-child",
+     "parent": {
+      "entity_id": "proc-seed"
+     }
+    },
+    "@timestamp": "2026-09-21 17:18:52.250+00:00",
+    "id": "line-2"
+   },
+   {
+    "message": "plain message with no fields at all, just words",
+    "id": "line-3"
+   },
+   {
+    "message": "2026-09-21T17:19:00Z host=WS-01;action=connect;DestinationIp=198.51.100.7;DestinationPort=8443;broken=\"unterminated",
+    "host": {
+     "name": "WS-01"
+    },
+    "event": {
+     "action": "connect"
+    },
+    "destination": {
+     "ip": "198.51.100.7",
+     "port": 8443
+    },
+    "broken": "\"unterminated",
+    "@timestamp": "2026-09-21T17:19:00Z",
+    "id": "line-4"
+   }
+  ],
+  "events.ndjson": [
+   {
+    "@timestamp": "2026-09-21T17:18:50Z",
+    "event": {
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "host": {
+     "name": "WS-01"
+    },
+    "process": {
+     "name": "powershell.exe",
+     "pid": 400,
+     "entity_id": "proc-seed"
+    },
+    "id": "line-1"
+   },
+   {
+    "_id": "kept-id",
+    "@timestamp": "2026-09-21T17:18:52Z",
+    "event": {
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "host": {
+     "name": "WS-01"
+    },
+    "process": {
+     "name": "stage.exe",
+     "pid": 410,
+     "entity_id": "proc-child",
+     "parent": {
+      "entity_id": "proc-seed"
+     }
+    }
+   },
+   {
+    "@timestamp": "2026-09-21T17:18:53Z",
+    "event": {
+     "category": [
+      "file"
+     ],
+     "type": [
+      "creation"
+     ]
+    },
+    "host": {
+     "name": "WS-01"
+    },
+    "process": {
+     "entity_id": "proc-child"
+    },
+    "file": {
+     "path": "C:\\Temp\\a.dll"
+    },
+    "id": "line-4"
+   }
+  ],
+  "eventviewer.csv": [
+   {
+    "Level": "Information",
+    "@timestamp": "2026-09-21 17:21:26",
+    "winlog": {
+     "channel": "Microsoft-Windows-Security-Auditing"
+    },
+    "event": {
+     "code": "4688",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "Task Category": "Process Creation",
+    "id": "line-2"
+   },
+   {
+    "Level": "Information",
+    "@timestamp": "2026-09-21 17:21:27",
+    "winlog": {
+     "channel": "Microsoft-Windows-Security-Auditing"
+    },
+    "event": {
+     "code": "4689"
+    },
+    "Task Category": "Process Termination",
+    "id": "line-3"
+   }
+  ],
+  "kibana.tsv": [
+   {
+    "@timestamp": "2026-09-21T17:18:50Z",
+    "host": {
+     "name": "WS-01"
+    },
+    "event": {
+     "category": "process",
+     "type": "start"
+    },
+    "process": {
+     "name": "powershell.exe",
+     "pid": 400,
+     "entity_id": "proc-seed",
+     "command_line": "powershell -enc AAAA"
+    },
+    "id": "line-2"
+   },
+   {
+    "@timestamp": "2026-09-21T17:18:52Z",
+    "host": {
+     "name": "WS-01"
+    },
+    "event": {
+     "category": "process",
+     "type": "start"
+    },
+    "process": {
+     "name": "stage.exe",
+     "pid": 410,
+     "entity_id": "proc-child",
+     "parent": {
+      "entity_id": "proc-seed"
+     },
+     "command_line": "stage.exe --run"
+    },
+    "id": "line-3"
+   }
+  ],
+  "search.json": [
+   {
+    "_id": "hit-1",
+    "_source": {
+     "@timestamp": "2026-09-21T17:18:50Z",
+     "event": {
+      "category": [
+       "process"
+      ],
+      "type": [
+       "start"
+      ]
+     },
+     "host": {
+      "name": "WS-01"
+     },
+     "process": {
+      "name": "a.exe",
+      "entity_id": "a"
+     }
+    }
+   },
+   {
+    "_source": {
+     "@timestamp": "2026-09-21T17:18:51Z",
+     "event": {
+      "category": [
+       "process"
+      ],
+      "type": [
+       "start"
+      ]
+     },
+     "host": {
+      "name": "WS-01"
+     },
+     "process": {
+      "name": "b.exe",
+      "entity_id": "b",
+      "parent": {
+       "entity_id": "a"
+      }
+     }
+    },
+    "id": "event-2"
+   }
+  ],
+  "sysmon.csv": [
+   {
+    "@timestamp": "2026-09-21T17:21:26.904Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "1",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\helena.cardenas\\Downloads\\2.8.exe",
+     "command_line": "C:\\Users\\helena.cardenas\\Downloads\\2.8.exe",
+     "pid": 8788,
+     "entity_id": "{26BBF027-6796-6AB1-6709-000000005C00}",
+     "parent": {
+      "executable": "C:\\Windows\\explorer.exe",
+      "entity_id": "{26BBF027-5E3E-6AB1-CF07-000000005C00}",
+      "pid": 7412,
+      "command_line": "C:\\Windows\\Explorer.EXE",
+      "name": "explorer.exe"
+     },
+     "name": "2.8.exe",
+     "hash": {
+      "sha256": "441627232462ff8f33eb995a2ec1cb53077a3a47699ce3bf6a9b320fa7c1fb40"
+     }
+    },
+    "Hashes": "SHA1=B30DCF2ADEF57979C65F76C02901A77D0EE6426E,MD5=4D0E58563A96CA551CFC9DDCC183CF1E,SHA256=441627232462FF8F33EB995A2EC1CB53077A3A47699CE3BF6A9B320FA7C1FB40,IMPHASH=00000000000000000000000000000000",
+    "id": "line-2"
+   },
+   {
+    "@timestamp": "2026-09-21T17:21:26.904Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Security"
+    },
+    "event": {
+     "code": "4688",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\helena.cardenas\\Downloads\\2.8.exe",
+     "command_line": "\"C:\\Users\\helena.cardenas\\Downloads\\2.8.exe\" ",
+     "pid": 8788,
+     "parent": {
+      "executable": "C:\\Windows\\explorer.exe",
+      "pid": 7412,
+      "name": "explorer.exe"
+     },
+     "name": "2.8.exe"
+    },
+    "id": "line-3"
+   },
+   {
+    "@timestamp": "2026-09-21T17:21:40.112Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "11"
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\helena.cardenas\\Downloads\\2.8.exe",
+     "pid": 8788,
+     "entity_id": "{26BBF027-6796-6AB1-6709-000000005C00}",
+     "name": "2.8.exe"
+    },
+    "file": {
+     "path": "C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe"
+    },
+    "id": "line-5"
+   },
+   {
+    "@timestamp": "2026-09-21T17:22:01.802Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "1",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe",
+     "command_line": "\"C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe\" ",
+     "pid": 2732,
+     "entity_id": "{26BBF027-67B9-6AB1-7709-000000005C00}",
+     "parent": {
+      "executable": "C:\\Users\\helena.cardenas\\Downloads\\2.8.exe",
+      "entity_id": "{26BBF027-6796-6AB1-6709-000000005C00}",
+      "pid": 8788,
+      "command_line": "\"C:\\Users\\helena.cardenas\\Downloads\\2.8.exe\" ",
+      "name": "2.8.exe"
+     },
+     "name": "ejlunwg0.exe",
+     "hash": {
+      "sha256": "f53af28ace72ecf0f4d5d03c1e876b2c4b6d9d260a381f72209db9bda4cf2095"
+     }
+    },
+    "Hashes": "SHA256=F53AF28ACE72ECF0F4D5D03C1E876B2C4B6D9D260A381F72209DB9BDA4CF2095",
+    "id": "line-6"
+   },
+   {
+    "@timestamp": "2026-09-21T17:22:03.020Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "3"
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe",
+     "pid": 2732,
+     "entity_id": "{26BBF027-67B9-6AB1-7709-000000005C00}",
+     "name": "ejlunwg0.exe"
+    },
+    "destination": {
+     "ip": "203.0.113.50",
+     "port": 443
+    },
+    "id": "line-7"
+   },
+   {
+    "@timestamp": "2026-09-21T17:22:03.400Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "22"
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe",
+     "pid": 2732,
+     "entity_id": "{26BBF027-67B9-6AB1-7709-000000005C00}",
+     "name": "ejlunwg0.exe"
+    },
+    "dns": {
+     "question": {
+      "name": "update.example.net"
+     }
+    },
+    "id": "line-8"
+   },
+   {
+    "@timestamp": "2026-09-21T17:22:10.000Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "1",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "techcorp\\helena.cardenas"
+    },
+    "process": {
+     "executable": "C:\\Windows\\System32\\cmd.exe",
+     "command_line": "cmd.exe /c \"echo line one\necho line two\"",
+     "pid": 9120,
+     "entity_id": "{26BBF027-67C2-6AB1-7809-000000005C00}",
+     "parent": {
+      "executable": "C:\\Users\\HELENA~1.CAR\\AppData\\Local\\Temp\\ejlunwg0.exe",
+      "entity_id": "{26BBF027-67B9-6AB1-7709-000000005C00}",
+      "pid": 2732,
+      "name": "ejlunwg0.exe"
+     },
+     "name": "cmd.exe"
+    },
+    "id": "line-9"
+   },
+   {
+    "@timestamp": "2026-09-21T17:45:00.000Z",
+    "host": {
+     "name": "CLA-WS-214"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "1",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "NT AUTHORITY\\SYSTEM"
+    },
+    "process": {
+     "executable": "C:\\Windows\\System32\\svchost.exe",
+     "command_line": "svchost.exe -k netsvcs",
+     "pid": 4400,
+     "entity_id": "{26BBF027-6900-6AB1-8000-000000005C00}",
+     "parent": {
+      "executable": "C:\\Windows\\System32\\services.exe",
+      "entity_id": "{26BBF027-5E00-6AB1-0100-000000005C00}",
+      "pid": 800,
+      "name": "services.exe"
+     },
+     "name": "svchost.exe"
+    },
+    "id": "line-11"
+   },
+   {
+    "@timestamp": "2026-09-21T17:22:05.000Z",
+    "host": {
+     "name": "CLA-WS-300"
+    },
+    "winlog": {
+     "channel": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    },
+    "event": {
+     "code": "1",
+     "category": [
+      "process"
+     ],
+     "type": [
+      "start"
+     ]
+    },
+    "user": {
+     "name": "techcorp\\other"
+    },
+    "process": {
+     "executable": "C:\\Windows\\System32\\notepad.exe",
+     "command_line": "notepad.exe",
+     "pid": 5000,
+     "entity_id": "{11111111-0000-0000-0000-000000000001}",
+     "parent": {
+      "executable": "C:\\Windows\\explorer.exe",
+      "entity_id": "{11111111-0000-0000-0000-000000000000}",
+      "pid": 4000,
+      "name": "explorer.exe"
+     },
+     "name": "notepad.exe"
+    },
+    "id": "line-12"
+   }
+  ]
+ },
+ "cases": [
+  {
+   "text": "",
+   "format": "auto",
+   "events": null
+  },
+  {
+   "text": "   \n\t\n",
+   "format": "auto",
+   "events": null
+  },
+  {
+   "text": "{\"events\": []}",
+   "format": "auto",
+   "events": []
+  },
+  {
+   "text": "{\"events\": [{\"_id\": \"a\"}, {\"x\": 1}]}",
+   "format": "auto",
+   "events": [
+    {
+     "_id": "a"
+    },
+    {
+     "x": 1,
+     "id": "event-2"
+    }
+   ]
+  },
+  {
+   "text": "{\n \"events\": [{\"a\": 1}]\n}",
+   "format": "auto",
+   "events": [
+    {
+     "a": 1,
+     "id": "event-1"
+    }
+   ]
+  },
+  {
+   "text": "[\n {\"a\": 1},\n {\"id\": 7}\n]",
+   "format": "auto",
+   "events": [
+    {
+     "a": 1,
+     "id": "event-1"
+    },
+    {
+     "id": 7
+    }
+   ]
+  },
+  {
+   "text": "{\"a\": 1}",
+   "format": "auto",
+   "events": [
+    {
+     "a": 1,
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "[1, 2]",
+   "format": "json",
+   "events": null
+  },
+  {
+   "text": "{\"a\": 1}\n[1]\n",
+   "format": "auto",
+   "events": null
+  },
+  {
+   "text": "{\"a\": 1}\n{bad\n",
+   "format": "auto",
+   "events": null
+  },
+  {
+   "text": "5",
+   "format": "json",
+   "events": null
+  },
+  {
+   "text": "a sentence, with a comma\nanother line\n",
+   "format": "auto",
+   "events": [
+    {
+     "message": "a sentence, with a comma",
+     "id": "line-1"
+    },
+    {
+     "message": "another line",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "[2026-09-21 17:18:50] service started\n",
+   "format": "auto",
+   "events": [
+    {
+     "message": "[2026-09-21 17:18:50] service started",
+     "@timestamp": "2026-09-21 17:18:50",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "alpha,beta\n1,2\n",
+   "format": "auto",
+   "events": [
+    {
+     "alpha": "1",
+     "beta": "2",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "Event ID,Date and Time,Level\n4688,2026-01-01 00:00:00,Info\n",
+   "format": "auto",
+   "events": [
+    {
+     "event": {
+      "code": "4688",
+      "category": [
+       "process"
+      ],
+      "type": [
+       "start"
+      ]
+     },
+     "@timestamp": "2026-01-01 00:00:00",
+     "Level": "Info",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "a,b\n\"open\n",
+   "format": "auto",
+   "events": null
+  },
+  {
+   "text": "a;b;c\n\"x;y\";\"he said \"\"hi\"\"\";z\n",
+   "format": "auto",
+   "events": [
+    {
+     "a": "x;y",
+     "b": "he said \"hi\"",
+     "c": "z",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "a|b\n1|2|3\n4\n",
+   "format": "auto",
+   "events": [
+    {
+     "a": "1",
+     "b": "2",
+     "id": "line-2"
+    },
+    {
+     "a": "4",
+     "id": "line-3"
+    }
+   ]
+  },
+  {
+   "text": "a,b\nx\"y\",z\n\" q\" r,s\n",
+   "format": "auto",
+   "events": [
+    {
+     "a": "x\"y\"",
+     "b": "z",
+     "id": "line-2"
+    },
+    {
+     "a": " q r",
+     "b": "s",
+     "id": "line-3"
+    }
+   ]
+  },
+  {
+   "text": "id,process.name\n,cmd.exe\nown-id,x.exe\n",
+   "format": "auto",
+   "events": [
+    {
+     "process": {
+      "name": "cmd.exe"
+     },
+     "id": "line-2"
+    },
+    {
+     "id": "own-id",
+     "process": {
+      "name": "x.exe"
+     }
+    }
+   ]
+  },
+  {
+   "text": "Image,process.executable\nC:\\a.exe,C:\\b.exe\n",
+   "format": "auto",
+   "events": [
+    {
+     "process": {
+      "executable": "C:\\a.exe",
+      "name": "a.exe"
+     },
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "process,process.name\nscalar,cmd.exe\n",
+   "format": "auto",
+   "events": [
+    {
+     "process": "scalar",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "__proto__,constructor\n1,2\n",
+   "format": "auto",
+   "events": [
+    {
+     "__proto__": "1",
+     "constructor": "2",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "pid,ppid,DestinationPort\n12x,0X1f,1234567890123456\n",
+   "format": "auto",
+   "events": [
+    {
+     "process": {
+      "pid": "12x",
+      "parent": {
+       "pid": 31
+      }
+     },
+     "destination": {
+      "port": "1234567890123456"
+     },
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "EventID,Channel,Image\n1,Microsoft-Windows-Sysmon/Operational,C:\\x\\y.exe\n1,System,C:\\x\\z.exe\n",
+   "format": "auto",
+   "events": [
+    {
+     "event": {
+      "code": "1",
+      "category": [
+       "process"
+      ],
+      "type": [
+       "start"
+      ]
+     },
+     "winlog": {
+      "channel": "Microsoft-Windows-Sysmon/Operational"
+     },
+     "process": {
+      "executable": "C:\\x\\y.exe",
+      "name": "y.exe"
+     },
+     "id": "line-2"
+    },
+    {
+     "event": {
+      "code": "1"
+     },
+     "winlog": {
+      "channel": "System"
+     },
+     "process": {
+      "executable": "C:\\x\\z.exe",
+      "name": "z.exe"
+     },
+     "id": "line-3"
+    }
+   ]
+  },
+  {
+   "text": "EventID,Category,Image\n4688,custom,C:\\x.exe\n",
+   "format": "auto",
+   "events": [
+    {
+     "event": {
+      "code": "4688",
+      "category": "custom"
+     },
+     "process": {
+      "executable": "C:\\x.exe",
+      "name": "x.exe"
+     },
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "x=1 y=\"a b\" z=\"say \\\"hi\\\"\" w= empty=\"\"\n",
+   "format": "text",
+   "events": [
+    {
+     "message": "x=1 y=\"a b\" z=\"say \\\"hi\\\"\" w= empty=\"\"",
+     "x": "1",
+     "y": "a b",
+     "z": "say \"hi\"",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "{\"a\": 1}\n",
+   "format": "text",
+   "events": [
+    {
+     "message": "{\"a\": 1}",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "a,b\n1,2\n",
+   "format": "text",
+   "events": [
+    {
+     "message": "a,b",
+     "id": "line-1"
+    },
+    {
+     "message": "1,2",
+     "id": "line-2"
+    }
+   ]
+  },
+  {
+   "text": "2026-09-21T17:18:50+0200 time=2026-01-01T00:00:00Z msg\n",
+   "format": "auto",
+   "events": [
+    {
+     "message": "2026-09-21T17:18:50+0200 time=2026-01-01T00:00:00Z msg",
+     "@timestamp": "2026-01-01T00:00:00Z",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "﻿﻿key=value\r\n\r\n",
+   "format": "auto",
+   "events": [
+    {
+     "message": "key=value",
+     "key": "value",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "one\rtwo\n",
+   "format": "auto",
+   "events": [
+    {
+     "message": "one\rtwo",
+     "id": "line-1"
+    }
+   ]
+  },
+  {
+   "text": "a,b\n1,2\n",
+   "format": "yaml",
+   "events": null
+  }
+ ]
+}

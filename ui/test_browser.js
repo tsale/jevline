@@ -55,6 +55,7 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'engine.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'formats.js'), 'utf8'), context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), context);
 
 const flush = () => new Promise(resolve => setImmediate(resolve));

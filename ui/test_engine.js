@@ -7,12 +7,13 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const engine = require('./engine.js');
+const formats = require('./formats.js');
 
 const root = path.join(__dirname, '..');
 const golden = JSON.parse(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'engine_golden.json'), 'utf8'));
 const fixtures = {synthetic: 'tests/fixtures/synthetic.json', edge_cases: 'tests/fixtures/edge_cases.json',
-  malicious_events: 'examples/malicious_events.json'};
-const load = name => { const data = JSON.parse(fs.readFileSync(path.join(root, fixtures[name]), 'utf8')); return Array.isArray(data) ? data : data.events; };
+  malicious_events: 'examples/malicious_events.json', sysmon_csv: 'tests/fixtures/formats/sysmon.csv'};
+const load = name => formats.parse(fs.readFileSync(path.join(root, fixtures[name]), 'utf8'));
 const digest = text => crypto.createHash('sha256').update(text).digest('hex');
 
 function goldenJudge(state) {  // Same rule as test_jev_incident.golden_judge.
@@ -43,6 +44,18 @@ const jevAnswer = (noul, choice = 'lineage') => response(200, {model: 'jev-1.13.
       {observer: (pass, state) => { requests.push(keep(JSON.stringify([pass, state]))); }});
     assert.deepEqual(requests, expected.requests, `${name}: request sequence`);
     assert.deepEqual(results, expected.results, `${name}: decisions`);
+  }
+
+  // 1b. The format loader (ui/formats.js) parses every format exactly like jev_incident.parse_lines.
+  const formatsGolden = JSON.parse(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'formats_golden.json'), 'utf8'));
+  for (const [name, expected] of Object.entries(formatsGolden.files)) {
+    const parsed = formats.parse(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'formats', name), 'utf8'));
+    assert.equal(JSON.stringify(parsed), JSON.stringify(expected), `formats: ${name}`);
+  }
+  for (const {text, format, events: expected} of formatsGolden.cases) {
+    let parsed = null;
+    try { parsed = formats.parse(text, format); } catch (error) { if (expected !== null) throw error; }
+    assert.equal(JSON.stringify(parsed), JSON.stringify(expected), `formats: ${JSON.stringify(text)} as ${format}`);
   }
 
   const events = load('synthetic');
@@ -138,5 +151,5 @@ const jevAnswer = (noul, choice = 'lineage') => response(200, {model: 'jev-1.13.
     const pyTactics = Object.fromEntries([...between(python, 'TACTICS = {', '}').matchAll(/'(TA\d{4})': '([^']+)'/g)].map(m => [m[1], m[2]]));
     assert.deepEqual(pyTactics, engine.TACTICS);
   }
-  console.log('Engine passed: byte-identical Jev requests to jev_incident.py on 3 fixtures, retries, resume, narrative validation.');
+  console.log('Engine passed: byte-identical Jev requests to jev_incident.py on 4 fixtures, format loader parity, retries, resume, narrative validation.');
 })().catch(error => { console.error(error); process.exit(1); });

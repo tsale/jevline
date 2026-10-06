@@ -1,0 +1,10 @@
+{
+  "took": 3,
+  "hits": {
+    "total": {"value": 2},
+    "hits": [
+      {"_id": "hit-1", "_source": {"@timestamp": "2026-09-21T17:18:50Z", "event": {"category": ["process"], "type": ["start"]}, "host": {"name": "WS-01"}, "process": {"name": "a.exe", "entity_id": "a"}}},
+      {"_source": {"@timestamp": "2026-09-21T17:18:51Z", "event": {"category": ["process"], "type": ["start"]}, "host": {"name": "WS-01"}, "process": {"name": "b.exe", "entity_id": "b", "parent": {"entity_id": "a"}}}}
+    ]
+  }
+}

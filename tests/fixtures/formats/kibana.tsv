@@ -1,0 +1,3 @@
+@timestamp	host.name	event.category	event.type	process.name	process.pid	process.entity_id	process.parent.entity_id	process.command_line
+2026-09-21T17:18:50Z	WS-01	process	start	powershell.exe	400	proc-seed		powershell -enc AAAA
+2026-09-21T17:18:52Z	WS-01	process	start	stage.exe	410	proc-child	proc-seed	stage.exe --run

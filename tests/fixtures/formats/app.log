@@ -1,0 +1,4 @@
+﻿2026-09-21T17:18:50Z host=WS-01 EventID=4688 Image="C:\Program Files\App\run.exe" CommandLine="run.exe --flag \"quoted\"" pid=0x190 user=alice
+[2026-09-21 17:18:52.250+00:00] host=WS-01 kind=execution process.name=stage.exe process.entity_id=proc-child process.parent.entity_id=proc-seed
+plain message with no fields at all, just words
+2026-09-21T17:19:00Z host=WS-01;action=connect;DestinationIp=198.51.100.7;DestinationPort=8443;broken="unterminated

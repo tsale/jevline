@@ -36,6 +36,20 @@ It comes as a web portal you can use as a website or run locally, and a command-
 
 The page's security policy only allows connections to its own site and `openrouter.ai`, so you can check every request in your browser's developer tools. The providers receive the telemetry you analyze, under their own terms.
 
+## New engine (preview)
+
+[`engine/`](engine/README.md) is the rewrite this project is moving to. It takes the 1 GB, 311,000-event CLA-WS-214 export from file to finished incident in under 3 seconds of local work.
+
+- **Links beyond lineage:** it follows parent/child lineage, process injection, dropped-and-executed files, loaded DLLs, named pipes and persistence.
+- **Jev calls grow with the incident, not the logs:** Jev is asked only about processes linked to the incident, one per request, sent in parallel. On the CLA-WS-214 export a full live investigation took 364 Jev requests and under 8 seconds.
+- **Same telemetry, same requests:** the same incident in different telemetry produces the same Jev requests, and a test enforces it.
+
+```bash
+node engine/src/cli.ts analyze export.ndjson --seed name:2.8.exe --context "Analyst-confirmed 2.8.exe execution."
+```
+
+The portal and the command line below still use the original engine until they switch over.
+
 ## Quick start
 
 You need **Python 3.9 or newer** (the `python3` that ships with macOS works) and a **TypeSafe API key** ([TypeSafe Quick Start](https://docs.typesafe.ai/introduction/quickstart)).
@@ -49,7 +63,7 @@ python3 web_app.py                # start the portal
 
 Open **http://127.0.0.1:8765** and:
 
-1. Click **Load bundled malicious-events example** (or drop in your own JSON export).
+1. Click **Load bundled malicious-events example** (or drop in your own log file: JSON, NDJSON, CSV or plain text).
 2. Check the **Starting execution**, the process you have confirmed as malicious, and add a sentence of **Analyst context**.
 3. Click **Analyze with Jev**. The **Event timeline** opens when the answers are in.
 
@@ -80,7 +94,7 @@ The server reads the keys on every request, so after you edit `.env`, click **Re
 
 | Tab | What it does |
 |---|---|
-| **Source & analysis** | Import a JSON export, choose the confirmed starting execution (the *seed*), add context, and run **Analyze with Jev**. Importing never leaves your browser. |
+| **Source & analysis** | Import a log file (JSON, NDJSON, CSV/TSV or plain text), choose the confirmed starting execution (the *seed*), add context, and run **Analyze with Jev**. Importing never leaves your browser. |
 | **Event timeline** | One compact row per linked event in time order, with a count such as "21 linked of 100 source events". |
 | **Execution chain** | The process-to-process flow and what each process did, as Markdown you can copy. It's built from Jev's results alone until you request a narrative, then the AI-drafted version (with an ATT&CK summary) replaces it; one click switches back. |
 | **Evidence table** | The incident rows in an 11-column, colour-coded table: Timestamp, Host, Phase, Title, Description, Tools, TTPs, Command Line, Indicator, Type, Pyramid. |
@@ -131,7 +145,10 @@ It prints one line per execution with the decision, probability and the evidence
 
 - `--run-dir DIR` writes an auditable bundle: `summary.json` (time, calls, tokens, input hash), `attempts.jsonl` (every call, including retried failures), `decisions.json` and `evidence/`.
 - `--resume-run OLD --run-dir NEW` continues a failed run, reusing only answers whose exact request matches.
+- `--format` (`auto`, `json`, `ndjson`, `csv` or `text`) overrides the detected [input format](#input-format).
 - `--threshold` (default `0.8`), `--model` (default `jev-1.13.0`) and `--output decisions.json` are also available.
+
+The command line has no size limit. A 1 GB NDJSON export (311,000 events, 28,800 process starts) loads in about 15 seconds on a laptop, and everything except the Jev calls themselves takes about 40 seconds. Every process start is still one Jev request (two if the second pass runs), so trim the export to the time window you care about before a live run.
 
 ## How it works
 
@@ -148,7 +165,20 @@ Jev returns a probability that the candidate is related, plus an evidence catego
 
 ## Input format
 
-The input is a JSON array of events, or `{"events": [...]}`. ECS documents and Elasticsearch hits are supported, either with `_source` or with the dotted `fields` format. Each event needs a unique `id`, `_id` or `event.id`. The seed must be a process start. The portal accepts up to 500 events and 2 MiB.
+Jevline reads any line-delimited log, and detects the format from the first line:
+
+| Format | Detected when the first line | Notes |
+|---|---|---|
+| **JSON** | starts with `[{`, `[]` or a bare `[`, or is a `{` that continues on later lines | An array of events, `{"events": [...]}`, or an Elasticsearch search response (`hits.hits`) |
+| **NDJSON** (JSON Lines) | is a complete JSON object | One event per line, for example an Elasticsearch or EDR export |
+| **CSV / TSV** | is a header of field names separated by `,` tab `;` or `\|` | Quoted fields may contain the separator, `""` and line breaks |
+| **Plain text** | is anything else | One event per line: the whole line is kept as `message`, `key=value` pairs (values may be `"quoted"`) become fields, and a leading ISO 8601 time becomes `@timestamp` |
+
+The CLI's `--format` overrides the detection. Blank lines are skipped, and a UTF-8 byte-order mark and Windows line endings are fine.
+
+Events can be ECS documents, Elasticsearch hits (with `_source` or the dotted `fields` format), or flat records. CSV columns and text keys can use dotted ECS names (`process.parent.entity_id`) or the usual Windows, Sysmon and Splunk names, which are mapped to ECS: for example `_time`, `Computer`, `Image`, `CommandLine`, `ProcessId`, `ProcessGuid`, `ParentImage`, `ParentProcessGuid`, `Hashes` (its `SHA256=`), `TargetFilename`, `DestinationIp` and `QueryName`. A row with `EventID` 4688, or `EventID` 1 from a Sysmon channel or source, is a process start. Process and parent names come from their paths, and decimal or `0x` PIDs and ports become numbers.
+
+Each event keeps its own `id`, `_id` or `event.id`. An event without one gets `line-N`, the line where it starts in the file (`event-N` inside a JSON document), so you can always find it in the source file again. The seed must be a process start. The portal accepts up to 500 events and 2 MiB; the command line has no limit.
 
 A minimal input looks like this (see [tests/fixtures/synthetic.json](tests/fixtures/synthetic.json)):
 
@@ -180,7 +210,7 @@ Only analyze telemetry you're allowed to share with these providers. On the webs
 ## Limitations
 
 - **No accuracy claim.** The tests mock both providers, and the 0.8 threshold is an experimental cut-off. Below the threshold means "not enough evidence to link", not "benign".
-- **Local JSON only.** There is no live Elasticsearch or SIEM query. Context selection scans the whole input for each candidate, which is fine for hundreds of events but not for millions.
+- **Local files only.** There is no live Elasticsearch or SIEM query. Context selection is indexed (by host, time and process entity ID), so large exports are fine locally; the limit is the number of Jev calls, one per process start.
 - **Context is not proof.** Nearby events are hints for Jev, and PIDs can be reused. The CLI doesn't require candidates to come after the seed, so prepare the time window you want.
 
 ## Development
@@ -190,7 +220,7 @@ python3 -m unittest -v test_jev_incident.py test_web_app.py
 node ui/test_engine.js && node ui/test_app.js && node ui/test_access.js && node ui/test_browser.js && node tests/test_relay.js
 ```
 
-All tests run offline with mocked providers. The JavaScript tests need Node.js; the app itself doesn't. `ui/engine.js` is a port of `jev_incident.py`, and `ui/test_engine.js` checks that it sends Jev byte-for-byte the same requests on three fixtures. After an intentional change to the Python engine, regenerate the reference with `python3 -c "import test_jev_incident as t; t.write_golden()"` and update the port until both suites pass.
+All tests run offline with mocked providers. The JavaScript tests need Node.js; the app itself doesn't. `ui/engine.js` and `ui/formats.js` are ports of `jev_incident.py`, and `ui/test_engine.js` checks that the browser parses every format into the same events and sends Jev byte-for-byte the same requests on four fixtures. After an intentional change to the Python engine, regenerate the reference with `python3 -c "import test_jev_incident as t; t.write_golden()"` and update the port until both suites pass.
 
 ### The website on Vercel
 
@@ -211,5 +241,6 @@ To deploy your own copy, import the repository in Vercel (or run `vercel deploy 
 | `site/index.html` | The website page: Jev access choice, key panel, privacy notice, connection policy |
 | `api/jev.js`, `api/_relay.js` | The website's Jev relay (Vercel function): demo key limited to the bundled example, visitors' keys forwarded |
 | `scripts/build_site.js`, `scripts/serve_site.js`, `vercel.json` | Website build, local preview with the relay, Vercel settings |
-| `examples/`, `tests/fixtures/` | Bundled lab export; synthetic and edge-case fixtures; the engine parity reference |
+| `ui/formats.js` | The browser port of the format loader (JSON, NDJSON, CSV/TSV, plain text) |
+| `examples/`, `tests/fixtures/` | Bundled lab export; synthetic, edge-case and per-format fixtures; the engine and format parity references |
 | `docs/` | README illustration |

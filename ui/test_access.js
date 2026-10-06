@@ -36,7 +36,9 @@ const context = {
     return answer.httpStatus ? {ok:false, status:answer.httpStatus, json:async () => ({error:answer.error})} : {ok:true, json:async () => answer};
   }
 };
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), context);
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'formats.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), context);
 const flush = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
   await flush();

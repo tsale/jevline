@@ -16,6 +16,10 @@ assert.equal(repositorySlug('https://gitlab.com/tsale/jevline'), null);
 build(out, 'https://github.com/tsale/jevline', 1234);
 let html = page();
 assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/, 'every placeholder is filled');
+for (const name of ['app.js', 'engine.js', 'formats.js', 'styles.css']) {
+  assert.equal(fs.readFileSync(path.join(out, name), 'utf8'), fs.readFileSync(path.join(__dirname, '..', 'ui', name), 'utf8'), `${name} is published`);
+  if (name.endsWith('.js')) assert.match(html, new RegExp(`<script src="${name}" defer></script>`), `${name} is loaded by the page`);
+}
 assert.match(html, /<a class="github-star-button" href="https:\/\/github.com\/tsale\/jevline" [^>]*aria-label="Star tsale\/jevline on GitHub">/);
 assert.match(html, /<a class="github-star-count" href="https:\/\/github.com\/tsale\/jevline\/stargazers" [^>]*>1,234<\/a>/);
 // The button is plain markup: the page still loads nothing from GitHub.

@@ -41,7 +41,9 @@ const context = {
       : {ok:true, json:async () => answer};
   }
 };
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), context);
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'formats.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8'), context);
 const flush = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
   assert.equal(requests.length, 0);
@@ -247,6 +249,21 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(nodes.seed.value, 'fields-1');
   assert.match(nodes.seed.options[0].textContent, /child.exe/);
   assert.match(nodes.seed.options[0].textContent, /2026-09-21T18:00:01Z/);
+  // Line-delimited logs import too, with the same events and IDs the command line assigns.
+  const upload = async (name, body) => { await nodes.file.fire('change', {target:{files:[{size:body.length, name, text:async () => body}]}}); await flush(); };
+  await upload('sysmon.csv', fs.readFileSync(path.join(__dirname, '..', 'tests', 'fixtures', 'formats', 'sysmon.csv'), 'utf8'));
+  assert.match(nodes.source.textContent, /sysmon\.csv · 9 events/);
+  assert.deepEqual(nodes.seed.options.map(option => option.value), ['line-2', 'line-3', 'line-6', 'line-12', 'line-9', 'line-11'], 'CSV process starts in time order');
+  assert.equal(nodes.seed.value, 'line-2', 'Sysmon start with a ProcessGuid preferred over the same 4688 start');
+  assert.match(nodes.seed.options[0].textContent, /2\.8\.exe/);
+  await upload('app.log', '2026-09-21T17:18:50Z host=WS-01 EventID=4688 Image="C:\\Tools\\run.exe" pid=400\nnot an event, just a note\n');
+  assert.match(nodes.source.textContent, /app\.log · 2 events/);
+  assert.equal(nodes.seed.value, 'line-1');
+  await upload('no-ids.json', JSON.stringify([{'@timestamp':'2026-09-21T18:00:00Z', event:{category:['process'], type:['start']}, process:{name:'a.exe'}}]));
+  assert.equal(nodes.seed.value, 'event-1', 'events without IDs are numbered instead of rejected');
+  await upload('broken.ndjson', '{"a": 1}\n{oops\n');
+  assert.match(nodes.status.textContent, /Import failed: line 2 is not valid JSON/);
+  assert.equal(requests.length, before + 11, 'imports stay offline');
   await nodes.file.fire('change', {target:{files:[{size:3 * 1024 * 1024, name:'large.json'}]}});
   assert.match(nodes.status.textContent, /2 MiB limit/);
   if (process.env.POC_SAMPLE_JSON) {

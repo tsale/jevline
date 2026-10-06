@@ -551,14 +551,15 @@ def handler_class(config):
             if self.path == '/api/status':
                 return self._reply(200, {**provider_status(config), 'example_available': EXAMPLE.is_file(),
                                          'access_required': bool(config.get('preview_host'))})
-            paths = {'/': ROOT / 'ui' / 'index.html', '/app.js': ROOT / 'ui' / 'app.js', '/styles.css': ROOT / 'ui' / 'styles.css',
+            paths = {'/': ROOT / 'ui' / 'index.html', '/app.js': ROOT / 'ui' / 'app.js', '/formats.js': ROOT / 'ui' / 'formats.js',
+                     '/styles.css': ROOT / 'ui' / 'styles.css',
                      '/examples/malicious_events.json': EXAMPLE}
             if self.path not in paths:
                 return self._reply(404, {'error': 'Not found'})
             path = paths[self.path]
             if not path.is_file():
                 return self._reply(404, {'error': 'UI missing'})
-            types = {'/': 'text/html', '/app.js': 'text/javascript', '/styles.css': 'text/css',
+            types = {'/': 'text/html', '/app.js': 'text/javascript', '/formats.js': 'text/javascript', '/styles.css': 'text/css',
                      '/examples/malicious_events.json': 'application/json'}
             self._headers(200, types[self.path] + '; charset=utf-8')
             self.wfile.write(path.read_bytes())
