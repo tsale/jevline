@@ -9,7 +9,7 @@ import {JevClient, type JevResponse, type Transport} from '../src/jev.ts';
 import {standIn} from '../src/standin.ts';
 import {mappingFile} from '../src/files.ts';
 import {readText} from '../src/read.ts';
-import {fingerprint, flatten, groupKey, learn, observe, readMapping, rolesRequest, SchemaCache, shapes, timeOf, type Profiles} from '../src/schema.ts';
+import {fingerprint, flatten, groupKey, kindRequest, learn, MAX_QUESTIONS, MAX_REQUEST_BYTES, observe, readMapping, rolesRequest, SchemaCache, shapes, timeOf, type Profiles} from '../src/schema.ts';
 import {ecs, falconFdr, mde} from './incident.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'jevline-schema-'));
@@ -70,6 +70,37 @@ test('a "PID" that only holds long numbers is used as a unique process ID', () =
   assert.equal(mapping.roles.ParentProcessId, 'creator_id');
   assert.deepEqual(shapes('4398046513104'), ['large_integer']);
   assert.deepEqual(shapes(8788), ['small_integer']);
+});
+
+test('a schema with many long fields is learned in requests the website relay accepts', async () => {
+  const profiles: Profiles = {};
+  for (let r = 0; r < 3; r++) {
+    const record: Record<string, unknown> = {ActionType: 'ProcessCreated', ProcessId: 4000 + r};
+    for (let i = 0; i < 190; i++) record[`Field_${i}`] = `C:\\Windows\\System32\\${r}\\${'x'.repeat(150)}`;
+    observe(profiles, one(JSON.stringify(record)), 'wide.json');
+  }
+  const group = Object.values(profiles)[0]!;
+  const size = (body: string) => new TextEncoder().encode(body).length;
+  assert.ok(size(kindRequest(group, 'm')) <= MAX_REQUEST_BYTES);
+  const {requests, labels} = rolesRequest(group, 'process_start', 'm');
+  assert.ok(requests.length > 1);
+  for (const {body, questions} of requests) {
+    assert.ok(size(body) <= MAX_REQUEST_BYTES, `${size(body)} bytes`);
+    assert.equal(Object.keys(JSON.parse(body).questions).length, questions);
+    assert.ok(questions <= MAX_QUESTIONS);
+  }
+  assert.equal(requests.reduce((sum, r) => sum + r.questions, 0), labels.size, 'every field is asked about once');
+  const sent: number[] = [];
+  const transport: Transport = async body => {
+    const {questions} = JSON.parse(body) as {questions: Record<string, unknown>};
+    sent.push(size(body));
+    return {answers: Object.fromEntries(Object.keys(questions).map(label => [label, label === 'kind'
+      ? {type: 'choice', choice: 'process_start', confidence: 0.9}
+      : {type: 'choice', choice: labels.get(label) === 'ProcessId' ? 'new_process_pid' : 'other', confidence: 0.9}]))};
+  };
+  const mapping = (await learn(profiles, new JevClient(transport), new SchemaCache(), 'm')).get(group.key)!;
+  assert.ok(sent.every(bytes => bytes <= MAX_REQUEST_BYTES));
+  assert.equal(mapping.roles.ProcessId, 'new_process_pid', 'answers from every request are used');
 });
 
 test('the same schema has the same fingerprint whatever its values', () => {
