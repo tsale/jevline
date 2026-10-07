@@ -29,6 +29,8 @@ The seed can be a process (an event ID such as `line-12057` or the export's own 
 | Option | Default | |
 |---|---|---|
 | `--threshold` | `0.8` | Jev probability that links a process |
+| `--entity-threshold` | `0.5` | Jev probability that links an address, domain, account or host nothing outside the incident ever touched (see [Infrastructure only the incident used](#infrastructure-only-the-incident-used)) |
+| `--context-lines` | | Also report `context`: the `[input, line]` of every record a later run needs instead of these logs |
 | `--batch` | `1` | Candidates per Jev request. Larger batches use fewer tokens, but other candidates in the request sway Jev (see [Batching](#batching)) |
 | `--margin` | `0.05` | Mark decisions this close to the threshold "review" |
 | `--concurrency` | `8` | Jev requests in flight |
@@ -121,6 +123,7 @@ files ─▶ read ─▶ normalize ─▶ processes ─▶ links ─▶ rounds o
 
    Candidates that would look identical to Jev apart from PID and start time (for example 1,350 relaunches of one beacon) share one question that says how many there are.
    An account, host, address or domain is shown with its **prevalence**: how many processes, hosts, accounts and addresses touched it across the whole input. That lets Jev tell common infrastructure (a public resolver, a search engine) from addresses only the incident touched. A link seen many times shows how often and until when (a beacon's hundreds of connections), and it counts for causality if any of it came after the incident side joined.
+   **Infrastructure only the incident used.** An address, domain, account or host also carries `seen_outside_incident`: how many processes, hosts, accounts and addresses outside the incident touched it, or `none`. Jev scores attacker infrastructure that only the incident touched well below processes, yet far above common infrastructure: on CLA-WS-219 (live, October 2026) its C2 domains and addresses scored 0.57–0.77, while `www.google.com`, a Windows Update host and `8.8.8.8` shown as contacted by the same malware scored 0.05–0.20. So such exclusive infrastructure links at `--entity-threshold` (0.5); anything that unrelated activity also touched still needs `--threshold`. The answers the Windows DNS Client service relays (Elastic Defend `lookup_result`) are not contacts by `svchost.exe`: the asking process's own lookup links instead, so the resolver doesn't make every domain look shared. Each decision reports the threshold it used, and members in a request show how they joined (`joined_via`).
 6. **Review flags.** Jev's answer to an identical request varies by up to about 0.05. Decisions within `--margin` of the threshold are marked `review`, because a fresh run without the cache could decide them the other way.
 7. **Repeats folded.** The same activity repeated without any meaningful change is reported once: a beacon, a brute force, a scheduled relaunch.
    - **Timeline:** a process's events count from when it joined, so an injected explorer.exe's earlier activity isn't listed. Each run of the same activity is one row, with `count`, `until`, `every_s` (the usual interval) and `last_event_id`. "The same" means the same host, kind, process and detail. A different destination, domain, account, registry value or process makes a new row, and so does activity that resumes after a quiet hour (or three times its usual interval, for slower cycles).
@@ -227,6 +230,7 @@ That's why the default is one candidate per request.
 
 ## Limitations
 
+- **Not re-measured on CLA-WS-214.** The results above predate `--entity-threshold` and `seen_outside_incident`; on CLA-WS-219 they linked all eleven C2 and delivery addresses and domains, against three before.
 - **Validated on one incident.** The scores above come from one host and one analyst's attack chain, which stops on 2026-09-24. Decisions after that, and on other incidents, haven't been adjudicated. Many decisions sit near the threshold (155 answers in the combined run), so a fresh run without the cache can move a few of them.
 - **Rate limits are unknown.** TypeSafe doesn't publish them; 429 and 529 answers are retried with backoff. Lower `--concurrency` if you see many retries.
 - **Unstructured text is only lightly understood.** Plain-text lines are read as `key=value` pairs plus the message; free-form messages (classic syslog) aren't yet reduced to templates, so they rarely carry a process chain.

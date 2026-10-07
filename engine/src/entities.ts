@@ -56,6 +56,8 @@ export function addEntities(events: Event[], nodes: Map<string, ProcessNode>, ac
     const e = events[i]!, t = e.t;
     switch (e.kind) {
       case 'network': case 'dns': {
+        // A relayed DNS answer is not a contact by the resolver: the asking process's lookup links instead.
+        if (e.dns_answer) break;
         // Who connected: the process when the event names one, otherwise the source (a firewall flow).
         const from = actor[i] || place(e.src?.ip, t, i);
         if (!from) break;

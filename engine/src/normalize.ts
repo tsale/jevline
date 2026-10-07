@@ -296,6 +296,7 @@ export function normalize(record: RawRecord, file: number, seq: number, stats?: 
     case 'network': case 'dns': {
       const net = {ip: str(get(F.ip)), port: int(get(F.port)), domain: str(get(kind === 'dns' ? F.query : F.domain))};
       event.net = Object.fromEntries(Object.entries(net).filter(([, v]) => v !== undefined));
+      if (kind === 'dns' && [get(F.action)].flat().some(a => String(a).toLowerCase() === 'lookup_result')) event.dns_answer = true;
       break;
     }
     case 'registry_set': event.reg = {key: str(get(F.regKey)), value: str(get(F.regValue))}; break;

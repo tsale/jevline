@@ -29,6 +29,8 @@ Options:
   --context <text>        Why the seed is confirmed malicious (sent to Jev with every request)
   --format <f>            ${FORMATS.join(' | ')} (default auto, detected per file)
   --threshold <p>         Jev probability that links a process (default 0.8)
+  --entity-threshold <p>  ...an address, domain, account or host nothing outside the incident touched (default 0.5)
+  --context-lines         Also report the [input, line] of every record a later run needs instead of these logs
   --batch <n>             Candidates per Jev request (default 1: each decision rests on its own evidence)
   --margin <p>            Flag decisions this close to the threshold for review (default 0.05)
   --concurrency <n>       Jev requests in flight (default 8)
@@ -130,7 +132,7 @@ function printReport(report: Report) {
 async function main(argv: string[]) {
   const {values, positionals} = parseArgs({args: argv, allowPositionals: true, options: {
     seed: {type: 'string'}, context: {type: 'string'}, format: {type: 'string', default: 'auto'},
-    threshold: {type: 'string'}, margin: {type: 'string'}, batch: {type: 'string'}, concurrency: {type: 'string'}, rounds: {type: 'string'},
+    threshold: {type: 'string'}, 'entity-threshold': {type: 'string'}, 'context-lines': {type: 'boolean', default: false}, margin: {type: 'string'}, batch: {type: 'string'}, concurrency: {type: 'string'}, rounds: {type: 'string'},
     'max-candidates': {type: 'string'}, model: {type: 'string', default: MODEL}, out: {type: 'string'}, cache: {type: 'string'}, schemas: {type: 'string'},
     offline: {type: 'boolean', default: false}, ungrouped: {type: 'boolean', default: false}, json: {type: 'boolean', default: false}, find: {type: 'string'}, 'key-file': {type: 'string'}, threads: {type: 'string'}, help: {type: 'boolean', short: 'h'},
   }});
@@ -197,6 +199,7 @@ async function main(argv: string[]) {
   const client = new JevClient(transport, clientOptions);
   const {report} = await analyze(loaded, key, client, {
     description: values.context, model: values.model!, threshold: number(values.threshold, 0.8, 'threshold', 0, 1),
+    entityThreshold: number(values['entity-threshold'], 0.5, 'entity-threshold', 0, 1), context: values['context-lines'],
     margin: number(values.margin, 0.05, 'margin', 0, 1), batchSize: number(values.batch, 1, 'batch', 1, 200), maxRounds: number(values.rounds, 20, 'rounds', 1, 1000),
     maxCandidatesPerRound: number(values['max-candidates'], 2000, 'max-candidates', 1), transport: transportName,
     group: !values.ungrouped,

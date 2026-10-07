@@ -153,7 +153,7 @@ export interface Report {
   timings_ms: Record<string, number>;
   /** Peak memory of the process (Node only; a browser does not report it). */
   peak_memory_mb?: number;
-  jev: {model: string; transport: string; threshold: number; margin: number; rounds: number; requests: number; answered_from_cache: number; failed: number;
+  jev: {model: string; transport: string; threshold: number; entity_threshold: number; margin: number; rounds: number; requests: number; answered_from_cache: number; failed: number;
     candidates_asked: number; questions: number;
     /** Answers within the margin of the threshold, and the candidates they decided (one answer decides a group of identical ones). */
     near_threshold: number; near_threshold_candidates: number; input_tokens: number; output_tokens: number; slowest_call_ms: number; stopped?: string};
@@ -162,14 +162,20 @@ export interface Report {
   rejected: ProcessRow[];
   /** One row per run of the same activity (see repeats.ts). */
   timeline: TimelineRow[];
+  /** With the `context` option: [input, line] of every record a later run needs instead of these logs. */
+  context?: [number, number][];
 }
 
 export interface ProcessRow {
   type: EntityType; name?: string; pid?: number; host: string; path?: string; command_line?: string; user?: string; sha256?: string;
   start?: string; first_seen?: string; end?: string; key: string;
+  /** The ID of the record of this process's start, when the logs have one. */
+  start_event?: string;
   /** When it became part of the incident (the seed: when it starts or is first seen). */
   joined_incident?: string;
-  joined?: {round: number; probability: number; review?: true; group_size?: number;
+  joined?: {round: number; probability: number; threshold: number;
+    /** SHA-256 of the exact Jev request that decided it (its line in requests.jsonl). */
+    request: string; review?: true; group_size?: number;
     /** Each link that brought it in: its type, the member it came from (a label, and that member's key), when, and what it says. */
     via: {link: LinkType; from?: string; from_key: string; at?: string; detail?: string}[]};
   /** The same process again (same executable, user and parent, linked the same way; see repeats.ts): how
@@ -208,13 +214,14 @@ export const iso = (t: number | null | undefined): string | undefined => {
   return `${text.slice(0, 23)}${String(((t % 1000) + 1000) % 1000).padStart(3, '0')}Z`;
 };
 
-function row(nodes: Map<string, ProcessNode>, key: string, decision?: Decision, joined?: number | null): ProcessRow {
+function row(nodes: Map<string, ProcessNode>, key: string, decision?: Decision, joined?: number | null, events?: Event[]): ProcessRow {
   const n = nodes.get(key)!;
+  const start = n.type === 'process' && n.starts.length && events ? events[n.starts[0]!]?.id : undefined;
   const label = (k: string) => { const o = nodes.get(k); return !o ? k : o.type === 'process' ? `${o.name ?? '?'} (${o.pid ?? '?'})` : `${o.name} (${o.type})`; };
   return Object.fromEntries(Object.entries({
     type: n.type, name: n.name, pid: n.pid, host: n.host || undefined, path: n.path, command_line: n.cmd, user: n.user, sha256: n.sha256,
-    start: iso(n.start), first_seen: n.type === 'process' ? undefined : iso(n.firstSeen), end: iso(n.end), key, joined_incident: iso(joined),
-    joined: decision && {round: decision.round, probability: decision.probability, ...(decision.review ? {review: true as const} : {}),
+    start: iso(n.start), first_seen: n.type === 'process' ? undefined : iso(n.firstSeen), end: iso(n.end), key, start_event: start, joined_incident: iso(joined),
+    joined: decision && {round: decision.round, probability: decision.probability, threshold: decision.threshold, request: decision.request, ...(decision.review ? {review: true as const} : {}),
       ...(decision.group_size > 1 ? {group_size: decision.group_size} : {}),
       via: decision.links.map(l => ({link: l.type, from: label(l.from === key ? l.to : l.from), from_key: l.from === key ? l.to : l.from, at: iso(l.t), detail: l.detail}))},
   }).filter(([, v]) => v !== undefined)) as unknown as ProcessRow;
@@ -237,7 +244,34 @@ function detail(e: Event): string | undefined {
   }
 }
 
-export interface AnalyzeOptions extends InvestigateOptions { transport: string }
+export interface AnalyzeOptions extends InvestigateOptions {
+  transport: string;
+  /** Also report `context`: the records a later run needs instead of these logs (see contextEvents). */
+  context?: boolean;
+}
+
+/** Records of others touching each address, domain, account or host the incident touched, kept in the context. */
+export const CONTEXT_OUTSIDE = 50;
+
+/** What a later run needs to rebuild this incident without these logs: every record of the incident's
+ * processes, and for each account, host, address or domain the incident touched or considered, its records
+ * with the incident plus up to CONTEXT_OUTSIDE (the earliest) with anything else, so infrastructure that
+ * others also used still looks shared. As [input, line] of each record, in input order. */
+function contextEvents(loaded: Loaded, investigation: Investigation): [number, number][] {
+  const members = new Set(investigation.incident);
+  const keep = new Set<number>();
+  loaded.events.forEach((e, i) => { if (members.has(loaded.actor[i]!)) keep.add(i); });
+  for (const key of new Set([...investigation.incident, ...investigation.decisions.keys()])) {
+    const n = loaded.nodes.get(key)!;
+    if (n.type === 'process') continue;
+    let others = 0;
+    for (const i of [...n.events].sort((a, b) => (loaded.events[a]!.t ?? 0) - (loaded.events[b]!.t ?? 0) || a - b)) {
+      if (members.has(loaded.actor[i]!)) keep.add(i);
+      else if (others++ < CONTEXT_OUTSIDE) keep.add(i);
+    }
+  }
+  return [...keep].sort((a, b) => a - b).map(i => [loaded.events[i]!.file, loaded.events[i]!.line]);
+}
 
 export async function analyze(loaded: Loaded, seedKey: string, client: JevClient, options: AnalyzeOptions,
   note?: string): Promise<{report: Report; investigation: Investigation}> {
@@ -308,7 +342,7 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
   const linksByType: Partial<Record<LinkType, number>> = {};
   for (const link of loaded.graph.links) linksByType[link.type] = (linksByType[link.type] ?? 0) + 1;
   const report: Report = {
-    seed: row(nodes, seedKey, undefined, investigation.since.get(seedKey)), ...(note ? {note} : {}),
+    seed: row(nodes, seedKey, undefined, investigation.since.get(seedKey), events), ...(note ? {note} : {}),
     inputs: loaded.inputs,
     schemas: loaded.schemas,
     counts: {records: loaded.stats.records, events: events.length, duplicates: loaded.duplicates,
@@ -316,7 +350,8 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
       timeline_events: shown.length},
     timings_ms: {...timings, total: Math.round(Object.values(timings).reduce((a, b) => a + b, 0) * 10) / 10},
     ...(typeof globalThis.process?.resourceUsage === 'function' ? {peak_memory_mb: Math.round(globalThis.process.resourceUsage().maxRSS / 1024)} : {}),
-    jev: {model: options.model, transport: options.transport, threshold: options.threshold, margin: options.margin ?? 0.05, rounds: investigation.rounds, requests: calls.length,
+    jev: {model: options.model, transport: options.transport, threshold: options.threshold,
+      entity_threshold: Math.min(options.threshold, options.entityThreshold ?? 0.5), margin: options.margin ?? 0.05, rounds: investigation.rounds, requests: calls.length,
       answered_from_cache: calls.filter(c => c.cached).length, failed: calls.filter(c => c.error).length,
       candidates_asked: investigation.history.length, questions: calls.reduce((s, c) => s + c.questions, 0),
       near_threshold: new Set([...investigation.decisions.values()].filter(d => d.review).map(d => `${d.request}|${d.probability}`)).size,
@@ -324,9 +359,10 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
       input_tokens: calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0), output_tokens: calls.reduce((s, c) => s + (c.output_tokens ?? 0), 0),
       slowest_call_ms: Math.round(Math.max(0, ...calls.map(c => c.ms))),
       ...(investigation.stopped ? {stopped: investigation.stopped} : {})},
-    incident: fold(incidentOrder, same, k => row(nodes, k, investigation.decisions.get(k), investigation.since.get(k))),
-    rejected: fold(rejectedOrder, identicalMembers(rejectedOrder, nodes, linksOf, new Set()), k => row(nodes, k, investigation.decisions.get(k))),
+    incident: fold(incidentOrder, same, k => row(nodes, k, investigation.decisions.get(k), investigation.since.get(k), events)),
+    rejected: fold(rejectedOrder, identicalMembers(rejectedOrder, nodes, linksOf, new Set()), k => row(nodes, k, investigation.decisions.get(k), undefined, events)),
     timeline,
+    ...(options.context ? {context: contextEvents(loaded, investigation)} : {}),
   };
   return {report, investigation};
 }
