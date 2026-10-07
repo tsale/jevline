@@ -270,32 +270,47 @@ export class SchemaCache {
 
 const TASK = 'Map the fields of one type of security log event to what they hold, so these events can be followed in an intrusion investigation.';
 
-/** What Jev sees about a group: its event type, an example event and every field with its shapes and examples. */
-function describe(group: GroupProfile): {state: Record<string, unknown>; labels: Map<string, string>} {
+// Every request must pass the website's relay (api/_relay.js): at most 60 questions and 256 KiB. A group
+// with many fields is asked about its fields in several requests, each with the same description.
+export const MAX_QUESTIONS = 60, MAX_REQUEST_BYTES = 240 * 1024;
+const size = (text: string) => new TextEncoder().encode(text).length;
+
+/** What Jev sees about a group: its event type, an example event and every field with its shapes and
+ * examples. Brief leaves out the example event and keeps one example per field, for groups so wide that
+ * the full description would not fit in one request. */
+function describe(group: GroupProfile, brief = false): {state: Record<string, unknown>; labels: Map<string, string>} {
   const used = Object.entries(group.fields).filter(([, f]) => f.count >= group.count * 0.2).sort(([a], [b]) => a.localeCompare(b));
   const labels = new Map<string, string>(), fields: Record<string, unknown> = {};
   used.forEach(([name, f], i) => {
     labels.set(`F${i + 1}`, name);
-    fields[`F${i + 1}`] = {name, looks_like: f.shapes, examples: f.samples};
+    fields[`F${i + 1}`] = {name, looks_like: f.shapes, examples: brief ? f.samples.slice(0, 1) : f.samples};
   });
   return {labels, state: {task: TASK, source: group.sources, event_type: group.type ? `${group.type[0]} = ${group.type[1]}` : null,
-    events_of_this_type: group.count, example_event: group.example, fields}};
+    events_of_this_type: group.count, ...(brief ? {} : {example_event: group.example}), fields}};
 }
+
+const KIND_QUESTION = {kind: {type: 'choice', instructions: 'What kind of event is this type of event?', criteria: KINDS}};
+const fits = (group: GroupProfile, model: string) => size(JSON.stringify({model, state: describe(group).state, questions: KIND_QUESTION})) <= MAX_REQUEST_BYTES;
 
 /** The first question about a group: what kind of event it is. */
 export function kindRequest(group: GroupProfile, model: string): string {
-  const {state} = describe(group);
-  return JSON.stringify({model, state, questions: {kind: {type: 'choice', instructions: 'What kind of event is this type of event?', criteria: KINDS}}});
+  const {state} = describe(group, !fits(group, model));
+  return JSON.stringify({model, state, questions: KIND_QUESTION});
 }
 
-/** The second question: what each field holds, from the menu for the group's kind. */
-export function rolesRequest(group: GroupProfile, kind: Exclude<LearnedKind, 'other'>, model: string): {body: string; labels: Map<string, string>} {
-  const {state, labels} = describe(group);
-  const questions: Record<string, unknown> = {};
-  for (const label of labels.keys()) {
-    questions[label] = {type: 'choice', instructions: `In this ${KINDS[kind].toLowerCase().replace(/^a /, '').replace(/ \(.*$/, '')} event, what does field ${label} hold?`, criteria: ROLE_MENUS[kind]};
+/** The second question: what each field holds, from the menu for the group's kind, in as few requests
+ * as fit the relay's limits (one, unless the group has more than 60 fields or they are very long). */
+export function rolesRequest(group: GroupProfile, kind: Exclude<LearnedKind, 'other'>, model: string): {requests: {body: string; questions: number}[]; labels: Map<string, string>} {
+  const {state, labels} = describe(group, !fits(group, model));
+  const question = (label: string) => ({type: 'choice', instructions: `In this ${KINDS[kind].toLowerCase().replace(/^a /, '').replace(/ \(.*$/, '')} event, what does field ${label} hold?`, criteria: ROLE_MENUS[kind]});
+  const body = (batch: string[]) => JSON.stringify({model, state: {...state, kind_of_event: KINDS[kind]}, questions: Object.fromEntries(batch.map(l => [l, question(l)]))});
+  const requests: {body: string; questions: number}[] = [], pending = [...labels.keys()];
+  while (pending.length) {
+    let n = Math.min(pending.length, MAX_QUESTIONS);
+    while (n > 1 && size(body(pending.slice(0, n))) > MAX_REQUEST_BYTES) n = Math.ceil(n / 2);
+    requests.push({body: body(pending.splice(0, n)), questions: n});
   }
-  return {body: JSON.stringify({model, state: {...state, kind_of_event: KINDS[kind]}, questions}), labels};
+  return {requests, labels};
 }
 
 const choice = (response: JevResponse, label: string): [string, number] | null => {
@@ -353,8 +368,9 @@ export async function learn(profiles: Profiles, client: JevClient, cache: Schema
     if (kind === 'other') {
       mapping = readMapping(group, kind, kindConfidence, null, new Map(), learned);
     } else {
-      const {body, labels} = rolesRequest(group, kind, model);
-      mapping = readMapping(group, kind, kindConfidence, await client.ask(body, labels.size), labels, learned);
+      const {requests, labels} = rolesRequest(group, kind, model);
+      const responses = await Promise.all(requests.map(r => client.ask(r.body, r.questions)));
+      mapping = readMapping(group, kind, kindConfidence, {answers: Object.assign({}, ...responses.map(r => r.answers))}, labels, learned);
     }
     cache.set(mapping);
     out.set(group.key, mapping);
