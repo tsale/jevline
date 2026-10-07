@@ -153,3 +153,7 @@ To deploy your own copy, import the repository in Vercel (or run `vercel deploy 
 | `docs/` | README illustration |
 
 The original Python engine and local portal are in the git history up to the tag `python-engine-final`.
+
+## License
+
+[MIT](LICENSE) © 2026 Defendpoint Consulting INC. Use it for anything; keep the copyright and license notice with any copy of the code.

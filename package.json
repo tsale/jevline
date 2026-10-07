@@ -1,6 +1,7 @@
 {
   "name": "jevline",
   "private": true,
+  "license": "MIT",
   "description": "One confirmed malicious process, address, account or host in; the incident out. Website (Vercel) and engine.",
   "engines": {"node": ">=22.18"},
   "scripts": {

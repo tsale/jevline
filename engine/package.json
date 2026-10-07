@@ -2,6 +2,7 @@
   "name": "jevline-engine",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Jevline engine: incident reconstruction from one confirmed process, with Jev deciding every link.",
   "type": "module",
   "bin": {
