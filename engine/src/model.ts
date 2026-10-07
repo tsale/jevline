@@ -54,6 +54,9 @@ export interface Event {
   file_sha256?: string;
   access?: number;           // process_access GrantedAccess mask
   net?: {ip?: string; port?: number; domain?: string};
+  /** dns: an answer the resolver relayed (Elastic Defend's lookup_result, logged by the DNS Client
+   * service), not a lookup by this process. The asking process has its own lookup_requested event. */
+  dns_answer?: true;
   reg?: {key?: string; value?: string};
   pipe?: string;
   /** service_install / task_create: the image or command the service or task runs. */

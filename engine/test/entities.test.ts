@@ -74,3 +74,65 @@ test('a seed must exist, and an event that names no process cannot seed by itsel
   assert.equal(findSeed(loaded, 'user:CORP\\svc_backup').key, 'user:svc_backup');
   assert.equal(findSeed(loaded, 'host:SRV-01.corp.example').key, 'host:srv-01');
 });
+
+test('infrastructure only the incident touched links at the lower entity threshold; shared infrastructure does not', async () => {
+  const {EVENTS, explorer} = await import('./incident.ts');
+  // Explorer, not part of the incident, also looks up evil.example; only the incident contacts 203.0.113.9.
+  const path = file(ecs([...EVENTS, {code: 22, t: 130, p: explorer, query: 'evil.example'}]).join('\n') + '\n', 'shared.ndjson');
+  const base = standIn();
+  const entitiesAt = (p: number) => async (body: string) => {
+    const response = await base(body);
+    const {state} = JSON.parse(body) as {state: {candidates?: Record<string, {type: string; seen_outside_incident?: unknown}>}};
+    for (const [label, c] of Object.entries(state.candidates ?? {})) if (c.type !== 'process') response.answers[label] = {type: 'noul', noul: p};
+    return response;
+  };
+  const loaded = await load([{path, format: 'auto' as const}]);
+  const options = {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test'};
+  const {report} = await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(entitiesAt(0.6)), options);
+  const decided = (rows: typeof report.incident) => Object.fromEntries(unfold(rows).filter(r => r.type !== 'process').map(r => [r.name, r.joined?.threshold]));
+  assert.deepEqual(decided(report.incident), {'203.0.113.9': 0.5}, 'exclusive C2 address joins at 0.6');
+  assert.deepEqual(decided(report.rejected), {'evil.example': 0.8}, 'a domain Explorer also looked up needs 0.8');
+  assert.equal(report.jev.entity_threshold, 0.5);
+  const strict = await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(entitiesAt(0.6)), {...options, entityThreshold: 0.8});
+  assert.deepEqual(unfold(strict.report.incident).filter(r => r.type !== 'process'), [], 'entityThreshold 0.8 restores the single threshold');
+});
+
+test('a DNS answer the resolver relayed does not make a domain shared', async () => {
+  const {EVENTS, seed, T0} = await import('./incident.ts');
+  const answer = JSON.stringify({'@timestamp': new Date(T0 + 2500).toISOString(), host: {name: 'WS-01'},
+    event: {category: ['network'], type: ['protocol', 'info'], action: 'lookup_result', dataset: 'endpoint.events.network'},
+    process: {name: 'svchost.exe', pid: 900, entity_id: 'dns-client-service', executable: 'C:\\Windows\\System32\\svchost.exe'},
+    dns: {question: {name: 'only.example'}, resolved_ip: ['198.51.100.7']}});
+  const events = [...EVENTS, {code: 22 as const, t: 2.4, p: seed, query: 'only.example'}];
+  const path = file([...ecs(events), answer].join('\n') + '\n', 'relayed.ndjson');
+  const base = standIn();
+  const entities = async (body: string) => {
+    const response = await base(body);
+    for (const [label, c] of Object.entries((JSON.parse(body) as {state: {candidates?: Record<string, {type: string}>}}).state.candidates ?? {}))
+      if (c.type !== 'process') response.answers[label] = {type: 'noul', noul: 0.6};
+    return response;
+  };
+  const loaded = await load([{path, format: 'auto' as const}]);
+  assert.ok(loaded.events.some(e => e.kind === 'dns' && e.dns_answer), 'the lookup_result is read as a relayed answer');
+  const {report} = await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(entities),
+    {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test'});
+  const only = unfold(report.incident).find(r => r.name === 'only.example');
+  assert.equal(only?.joined?.threshold, 0.5, 'only the incident asked for it');
+});
+
+test('the reported context alone rebuilds the incident, and shared infrastructure stays shared', async () => {
+  const {EVENTS, explorer} = await import('./incident.ts');
+  const lines = ecs([...EVENTS, {code: 22, t: 130, p: explorer, query: 'evil.example'}]);
+  const path = file(lines.join('\n') + '\n', 'full.ndjson');
+  const options = {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test', context: true};
+  const loaded = await load([{path, format: 'auto' as const}]);
+  const full = (await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(standIn()), options)).report;
+  assert.ok(full.context && full.context.length < lines.length, 'the context is a subset of the input');
+  const subset = file(full.context!.map(([, line]) => lines[line - 1]).join('\n') + '\n', 'context.ndjson');
+  const again = await load([{path: subset, format: 'auto' as const}]);
+  const rebuilt = (await analyze(again, findSeed(again, 'name:invoice.exe').key, new JevClient(standIn()), options)).report;
+  const names = (rows: typeof full.incident) => unfold(rows).map(r => `${r.type}:${r.name}:${r.pid ?? ''}`).sort();
+  assert.deepEqual(names(rebuilt.incident), names(full.incident));
+  const shared = (r: typeof full) => unfold([...r.incident, ...r.rejected]).find(x => x.name === 'evil.example')?.joined?.threshold;
+  assert.equal(shared(rebuilt), 0.8, 'Explorer\'s lookup of evil.example is kept, so it still needs 0.8');
+});

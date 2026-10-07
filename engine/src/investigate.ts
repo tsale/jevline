@@ -14,6 +14,10 @@ export interface InvestigateOptions {
   description: string;
   model: string;
   threshold: number;
+  /** The threshold for an account, host, address or domain that nothing outside the incident ever touched
+   * (default 0.5, or `threshold` if that is lower). Jev scores such exclusive attacker infrastructure well
+   * below processes (0.55-0.77 for CLA-WS-219's C2) yet far above common infrastructure (0.05-0.20). */
+  entityThreshold?: number;
   /** Decisions this close to the threshold are flagged for review: Jev's answer to the identical
    * request varies by a few hundredths, so a fresh run could put them on the other side. */
   margin?: number;
@@ -40,6 +44,8 @@ export interface Decision {
   group_size: number;
   probability: number;
   related: boolean;
+  /** The threshold this decision used: `entityThreshold` for exclusive infrastructure, else `threshold`. */
+  threshold: number;
   /** Within `margin` of the threshold. */
   review: boolean;
   links: Link[];
@@ -56,7 +62,9 @@ export interface Investigation {
   stopped?: string;          // why the expansion stopped early, if it did
 }
 
-interface Context { events: Event[]; nodes: Map<string, ProcessNode>; graph: Graph; activity: Map<string, Activity>; seed: ProcessNode; since: Map<string, number | null> }
+interface Context { events: Event[]; nodes: Map<string, ProcessNode>; graph: Graph; activity: Map<string, Activity>; seed: ProcessNode; since: Map<string, number | null>;
+  /** The links each member joined through (the seed has none). */
+  joined: Map<string, Link[]> }
 
 /** Ask Jev outward from the seed until no new process is linked. */
 export async function investigate(events: Event[], nodes: Map<string, ProcessNode>, graph: Graph, seedKey: string,
@@ -64,7 +72,7 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
   const seed = nodes.get(seedKey)!;
   const incident = [seedKey], members = new Set(incident);
   const since = new Map<string, number | null>([[seedKey, seed.start ?? seed.firstSeen]]);
-  const ctx: Context = {events, nodes, graph, seed, since, activity: new Map()};
+  const ctx: Context = {events, nodes, graph, seed, since, activity: new Map(), joined: new Map()};
   // Only what happened after a member joined the incident can carry the incident further. A link seen
   // many times (a host's lookups, a beacon) counts if any of it came after.
   const afterJoining = (member: string, link: Link) => {
@@ -108,8 +116,9 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
       batch.forEach((g, i) => {
         const probability = readAnswer(response, labels[i]!);
         for (const [key, links] of g.members) {
-          const decision: Decision = {key, round, group_size: g.members.length, probability, related: probability >= options.threshold,
-            review: Math.abs(probability - options.threshold) < (options.margin ?? 0.05), links, request: digest};
+          const threshold = thresholdFor(ctx, key, options);
+          const decision: Decision = {key, round, group_size: g.members.length, probability, related: probability >= threshold, threshold,
+            review: Math.abs(probability - threshold) < (options.margin ?? 0.05), links, request: digest};
           decisions.set(key, decision);
           history.push(decision);
           asked.set(key, signature(links));
@@ -126,6 +135,7 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
         return l.t === null || other === null ? l.t : Math.max(l.t, other);
       }).filter((t): t is number => t !== null);
       since.set(key, times.length ? Math.min(...times) : null);
+      ctx.joined.set(key, decisions.get(key)!.links);
     }
     if (!joined.length) break;  // Nothing new joined, so no new links can appear.
   }
@@ -134,6 +144,16 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
 }
 
 export interface Group { members: [string, Link[]][] }
+
+/** Nothing outside the incident ever touched this account, host, address or domain. */
+function exclusive(ctx: Context, key: string): boolean {
+  const n = ctx.nodes.get(key)!;
+  return n.type !== 'process' && (ctx.graph.touching.get(key) ?? []).every(l => ctx.since.has(l.from === key ? l.to : l.from));
+}
+
+function thresholdFor(ctx: Context, key: string, options: InvestigateOptions): number {
+  return exclusive(ctx, key) ? Math.min(options.threshold, options.entityThreshold ?? 0.5) : options.threshold;
+}
 
 /** Candidates that Jev would see identically apart from PID and start time share one question. */
 function group(ctx: Context, pending: [string, Link[]][], enabled: boolean): Group[] {
@@ -287,11 +307,14 @@ function entitySummary(ctx: Context, n: ProcessNode) {
   }
   let last: number | null = null;
   for (const i of n.events) { const t = ctx.events[i]!.t; if (t !== null && (last === null || t > last)) last = t; }
+  // The same counts without the incident's own members: "none" means only the incident ever touched it.
+  const outside = [...seen].map(([type, keys]) => [type, [...keys].filter(k => !ctx.since.has(k)).length] as const).filter(([, n]) => n > 0);
   return compact({
     type: TYPE_NAME[n.type], name: n.name,
     scope: n.type === 'ip' ? (isInternal(n.name ?? '') ? 'internal' : 'external') : undefined,
     first_seen: relative(n.firstSeen, origin), last_seen: relative(last, origin), events: n.events.length,
     seen_with: Object.fromEntries([...seen].sort(([a], [b]) => a.localeCompare(b)).map(([type, keys]) => [PLURAL[type], keys.size])),
+    seen_outside_incident: outside.length ? Object.fromEntries(outside.sort(([a], [b]) => a.localeCompare(b)).map(([type, n]) => [PLURAL[type], n])) : 'none',
   });
 }
 
@@ -341,6 +364,12 @@ const question = (label: string) => ({
       false: 'Independent, benign or common activity (such as widely used infrastructure), or not enough evidence to link it'}},
 });
 
+/** How an incident member joined: the links that brought it in, from the members they came from (at most three). */
+function joinedVia(ctx: Context, key: string): {what: string; from: string}[] | undefined {
+  const links = ctx.joined.get(key);
+  return links?.length ? links.slice(0, 3).map(l => ({what: linkText(l.type, l.to === key), from: nodeLabel(ctx.nodes.get(l.from === key ? l.to : l.from))})) : undefined;
+}
+
 /** The exact request body for one batch, and the label of each candidate in it. */
 function request(ctx: Context, batch: Group[], incident: string[], options: InvestigateOptions): {body: string; labels: string[]} {
   const origin = ctx.seed.start ?? ctx.seed.firstSeen;
@@ -366,7 +395,7 @@ function request(ctx: Context, batch: Group[], incident: string[], options: Inve
     analyst_context: options.description,
     seed: {...summary(ctx, ctx.seed.key), activity: compact(activity(ctx, ctx.seed.key, null))},
     incident: Object.fromEntries(involved.map(k => [label.get(k)!,
-      compact({...summary(ctx, k), joined_incident: relative(ctx.since.get(k) ?? null, origin)})])),
+      compact({...summary(ctx, k), joined_incident: relative(ctx.since.get(k) ?? null, origin), joined_via: joinedVia(ctx, k)})])),
     candidates,
   };
   const questions = Object.assign({}, ...labels.map(question));
