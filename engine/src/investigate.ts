@@ -179,12 +179,19 @@ function group(ctx: Context, pending: [string, Link[]][], enabled: boolean): Gro
   for (const [key, links] of pending) {
     const {pid: _pid, started: _started, ended: _ended, first_seen: _first, last_seen: _last, ...what} = summary(ctx, key) as Record<string, unknown>;
     const {since: _since, ...did} = activity(ctx, key, firstLink(links));
-    const id = JSON.stringify([what, links.map(l => [l.type, l.from === key ? l.to : l.from, l.detail]), did]);
+    const id = JSON.stringify([what, links.map(l => [l.type, sameAs(ctx, l.from === key ? l.to : l.from), l.detail]), did]);
     const g = groups.get(id);
     if (g) g.members.push([key, links]); else groups.set(id, {members: [[key, links]]});
   }
   return [...groups.values()];
 }
+
+/** Who is on the other end of a link, for sharing a question: an address, domain, account or host itself; a
+ * process by what it ran, so the children of a loop's runs (one parent process per run) share one question. */
+const sameAs = (ctx: Context, key: string): string => {
+  const n = ctx.nodes.get(key);
+  return n?.type === 'process' ? JSON.stringify(['process', n.name, n.path, n.cmd, n.user, n.sha256, n.host]) : key;
+};
 
 /** When the earliest link reached a candidate: what it did from then on is what matters. */
 const firstLink = (links: Link[]): number | null => {
@@ -391,8 +398,9 @@ function joinedVia(ctx: Context, key: string): {what: string; from: string}[] | 
 /** The exact request body for one batch, and the label of each candidate in it. */
 function request(ctx: Context, batch: Group[], incident: string[], options: InvestigateOptions): {body: string; labels: string[]} {
   const origin = ctx.seed.start ?? ctx.seed.firstSeen;
-  // Incident processes this batch's links come from, labelled in the order they joined (seed first).
-  const sources = new Set(batch.flatMap(g => g.members.flatMap(([key, links]) => links.map(l => l.from === key ? l.to : l.from))));
+  // Incident processes this batch's links come from, labelled in the order they joined (seed first). A shared
+  // question shows its first member's links, so only their sources: not one per run of a loop.
+  const sources = new Set(batch.flatMap(g => { const [key, links] = g.members[0]!; return links.map(l => l.from === key ? l.to : l.from); }));
   const label = new Map<string, string>([[ctx.seed.key, 'seed']]);
   const involved = incident.filter(k => k !== ctx.seed.key && sources.has(k));
   involved.forEach((k, i) => label.set(k, `I${i + 1}`));
