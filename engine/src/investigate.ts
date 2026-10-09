@@ -16,8 +16,13 @@ export interface InvestigateOptions {
   threshold: number;
   /** The threshold for an account, host, address or domain that nothing outside the incident ever touched
    * (default 0.5, or `threshold` if that is lower). Jev scores such exclusive attacker infrastructure well
-   * below processes (0.55-0.77 for CLA-WS-219's C2) yet far above common infrastructure (0.05-0.20). */
+   * below processes (0.55-0.77 for CLA-WS-219's C2) yet far above common infrastructure (0.05-0.20).
+   * It also applies to a relaunch: a process running a file the incident wrote, started by persistence
+   * the incident registered (0.76 for CLA-WS-216's SmcGui.exe relaunched by its Run key). */
   entityThreshold?: number;
+  /** Other members the analyst already confirmed (node keys): they start in the incident beside the seed,
+   * from their own start, so one investigation covers them all. */
+  confirmed?: string[];
   /** Decisions this close to the threshold are flagged for review: Jev's answer to the identical
    * request varies by a few hundredths, so a fresh run could put them on the other side. */
   margin?: number;
@@ -64,15 +69,19 @@ export interface Investigation {
 
 interface Context { events: Event[]; nodes: Map<string, ProcessNode>; graph: Graph; activity: Map<string, Activity>; seed: ProcessNode; since: Map<string, number | null>;
   /** The links each member joined through (the seed has none). */
-  joined: Map<string, Link[]> }
+  joined: Map<string, Link[]>;
+  /** Members the analyst confirmed alongside the seed. */
+  confirmed: Set<string> }
 
 /** Ask Jev outward from the seed until no new process is linked. */
 export async function investigate(events: Event[], nodes: Map<string, ProcessNode>, graph: Graph, seedKey: string,
   client: JevClient, options: InvestigateOptions): Promise<Investigation> {
   const seed = nodes.get(seedKey)!;
-  const incident = [seedKey], members = new Set(incident);
-  const since = new Map<string, number | null>([[seedKey, seed.start ?? seed.firstSeen]]);
-  const ctx: Context = {events, nodes, graph, seed, since, activity: new Map(), joined: new Map()};
+  const confirmed = [...new Set(options.confirmed ?? [])].filter(k => k !== seedKey && nodes.has(k));
+  const incident = [seedKey, ...confirmed], members = new Set(incident);
+  const since = new Map<string, number | null>([[seedKey, seed.start ?? seed.firstSeen],
+    ...confirmed.map(k => [k, nodes.get(k)!.start ?? nodes.get(k)!.firstSeen] as [string, number | null])]);
+  const ctx: Context = {events, nodes, graph, seed, since, activity: new Map(), joined: new Map(), confirmed: new Set(confirmed)};
   // Only what happened after a member joined the incident can carry the incident further. A link seen
   // many times (a host's lookups, a beacon) counts if any of it came after.
   const afterJoining = (member: string, link: Link) => {
@@ -116,7 +125,7 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
       batch.forEach((g, i) => {
         const probability = readAnswer(response, labels[i]!);
         for (const [key, links] of g.members) {
-          const threshold = thresholdFor(ctx, key, options);
+          const threshold = thresholdFor(ctx, key, options, links);
           const decision: Decision = {key, round, group_size: g.members.length, probability, related: probability >= threshold, threshold,
             review: Math.abs(probability - threshold) < (options.margin ?? 0.05), links, request: digest};
           decisions.set(key, decision);
@@ -151,8 +160,16 @@ function exclusive(ctx: Context, key: string): boolean {
   return n.type !== 'process' && (ctx.graph.touching.get(key) ?? []).every(l => ctx.since.has(l.from === key ? l.to : l.from));
 }
 
-function thresholdFor(ctx: Context, key: string, options: InvestigateOptions): number {
-  return exclusive(ctx, key) ? Math.min(options.threshold, options.entityThreshold ?? 0.5) : options.threshold;
+/** The incident's own program started again by its own persistence: a member wrote the file this process
+ * runs and a member registered what started it. With no parent in the incident, Jev scores it below its first run. */
+function relaunched(ctx: Context, key: string, links: Link[]): boolean {
+  if (ctx.nodes.get(key)!.type !== 'process') return false;
+  const by = (type: Link['type']) => links.some(l => l.type === type && l.to === key && ctx.since.has(l.from));
+  return by('dropped_and_ran') && by('persisted_and_ran');
+}
+
+function thresholdFor(ctx: Context, key: string, options: InvestigateOptions, links: Link[] = []): number {
+  return exclusive(ctx, key) || relaunched(ctx, key, links) ? Math.min(options.threshold, options.entityThreshold ?? 0.5) : options.threshold;
 }
 
 /** Candidates that Jev would see identically apart from PID and start time share one question. */
@@ -162,12 +179,19 @@ function group(ctx: Context, pending: [string, Link[]][], enabled: boolean): Gro
   for (const [key, links] of pending) {
     const {pid: _pid, started: _started, ended: _ended, first_seen: _first, last_seen: _last, ...what} = summary(ctx, key) as Record<string, unknown>;
     const {since: _since, ...did} = activity(ctx, key, firstLink(links));
-    const id = JSON.stringify([what, links.map(l => [l.type, l.from === key ? l.to : l.from, l.detail]), did]);
+    const id = JSON.stringify([what, links.map(l => [l.type, sameAs(ctx, l.from === key ? l.to : l.from), l.detail]), did]);
     const g = groups.get(id);
     if (g) g.members.push([key, links]); else groups.set(id, {members: [[key, links]]});
   }
   return [...groups.values()];
 }
+
+/** Who is on the other end of a link, for sharing a question: an address, domain, account or host itself; a
+ * process by what it ran, so the children of a loop's runs (one parent process per run) share one question. */
+const sameAs = (ctx: Context, key: string): string => {
+  const n = ctx.nodes.get(key);
+  return n?.type === 'process' ? JSON.stringify(['process', n.name, n.path, n.cmd, n.user, n.sha256, n.host]) : key;
+};
 
 /** When the earliest link reached a candidate: what it did from then on is what matters. */
 const firstLink = (links: Link[]): number | null => {
@@ -366,6 +390,7 @@ const question = (label: string) => ({
 
 /** How an incident member joined: the links that brought it in, from the members they came from (at most three). */
 function joinedVia(ctx: Context, key: string): {what: string; from: string}[] | undefined {
+  if (ctx.confirmed.has(key)) return [{what: 'confirmed by the analyst as part of this incident', from: 'analyst'}];
   const links = ctx.joined.get(key);
   return links?.length ? links.slice(0, 3).map(l => ({what: linkText(l.type, l.to === key), from: nodeLabel(ctx.nodes.get(l.from === key ? l.to : l.from))})) : undefined;
 }
@@ -373,8 +398,9 @@ function joinedVia(ctx: Context, key: string): {what: string; from: string}[] | 
 /** The exact request body for one batch, and the label of each candidate in it. */
 function request(ctx: Context, batch: Group[], incident: string[], options: InvestigateOptions): {body: string; labels: string[]} {
   const origin = ctx.seed.start ?? ctx.seed.firstSeen;
-  // Incident processes this batch's links come from, labelled in the order they joined (seed first).
-  const sources = new Set(batch.flatMap(g => g.members.flatMap(([key, links]) => links.map(l => l.from === key ? l.to : l.from))));
+  // Incident processes this batch's links come from, labelled in the order they joined (seed first). A shared
+  // question shows its first member's links, so only their sources: not one per run of a loop.
+  const sources = new Set(batch.flatMap(g => { const [key, links] = g.members[0]!; return links.map(l => l.from === key ? l.to : l.from); }));
   const label = new Map<string, string>([[ctx.seed.key, 'seed']]);
   const involved = incident.filter(k => k !== ctx.seed.key && sources.has(k));
   involved.forEach((k, i) => label.set(k, `I${i + 1}`));

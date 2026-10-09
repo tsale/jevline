@@ -97,6 +97,30 @@ test('infrastructure only the incident touched links at the lower entity thresho
   assert.deepEqual(unfold(strict.report.incident).filter(r => r.type !== 'process'), [], 'entityThreshold 0.8 restores the single threshold');
 });
 
+test('a file the incident wrote, started by persistence the incident registered, links at the lower threshold', async () => {
+  const {EVENTS} = await import('./incident.ts');
+  const base = standIn();
+  // Jev scores the relaunched updater 0.6: below the process threshold, as for CLA-WS-216's SmcGui.exe.
+  const updaterAt = (p: number) => async (body: string) => {
+    const response = await base(body);
+    const {state} = JSON.parse(body) as {state: {candidates?: Record<string, unknown>}};
+    for (const [label, c] of Object.entries(state.candidates ?? {})) if ((c as {name?: string}).name === 'upd.exe') response.answers[label] = {type: 'noul', noul: p};
+    return response;
+  };
+  const options = {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test'};
+  const updater = async (events: typeof EVENTS) => {
+    const loaded = await load([{path: file(ecs(events).join('\n') + '\n', 'relaunch.ndjson'), format: 'auto' as const}]);
+    const {report} = await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(updaterAt(0.6)), options);
+    const find = (rows: typeof report.incident) => unfold(rows).find(r => r.name === 'upd.exe');
+    return {joined: find(report.incident), rejected: find(report.rejected)};
+  };
+  const relaunch = await updater(EVENTS);
+  assert.equal(relaunch.joined?.joined?.threshold, 0.5, 'dropped by stage2 and started by its Run key: joins at 0.6');
+  const dropped = await updater(EVENTS.filter(e => e.code !== 13));  // no Run key: only dropped_and_ran
+  assert.equal(dropped.joined, undefined);
+  assert.equal(dropped.rejected?.joined?.threshold ?? 0.8, 0.8, 'a dropped file alone still needs the process threshold');
+});
+
 test('a DNS answer the resolver relayed does not make a domain shared', async () => {
   const {EVENTS, seed, T0} = await import('./incident.ts');
   const answer = JSON.stringify({'@timestamp': new Date(T0 + 2500).toISOString(), host: {name: 'WS-01'},
@@ -135,4 +159,18 @@ test('the reported context alone rebuilds the incident, and shared infrastructur
   assert.deepEqual(names(rebuilt.incident), names(full.incident));
   const shared = (r: typeof full) => unfold([...r.incident, ...r.rejected]).find(x => x.name === 'evil.example')?.joined?.threshold;
   assert.equal(shared(rebuilt), 0.8, 'Explorer\'s lookup of evil.example is kept, so it still needs 0.8');
+});
+
+test('analyst-confirmed starting points join the incident beside the seed in one investigation', async () => {
+  const path = file(ecs().join('\n') + '\n', 'confirmed.ndjson');
+  const loaded = await load([{path, format: 'auto' as const}]);
+  const seed = findSeed(loaded, 'name:invoice.exe').key, rundll = findSeed(loaded, 'name:rundll32.exe').key;
+  const options = {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 1000, transport: 'test'};
+  const alone = (await analyze(loaded, seed, new JevClient(standIn()), options)).report;
+  assert.ok(!unfold(alone.incident).some(r => r.name === 'rundll32.exe'), 'the stand-in does not link rundll32 from the seed');
+  const {report} = await analyze(loaded, seed, new JevClient(standIn()), {...options, confirmed: [rundll]});
+  const row = unfold(report.incident).find(r => r.name === 'rundll32.exe');
+  assert.equal(row?.confirmed, true);
+  assert.equal(row?.joined, undefined, 'no Jev decision for a confirmed member');
+  assert.ok(report.timeline.some(t => t.process === 'rundll32.exe'), 'its activity is in the timeline');
 });

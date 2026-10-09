@@ -171,6 +171,8 @@ export interface ProcessRow {
   start?: string; first_seen?: string; end?: string; key: string;
   /** The ID of the record of this process's start, when the logs have one. */
   start_event?: string;
+  /** An analyst-confirmed member given with the seed (`--also`), not one Jev linked. */
+  confirmed?: true;
   /** When it became part of the incident (the seed: when it starts or is first seen). */
   joined_incident?: string;
   joined?: {round: number; probability: number; threshold: number;
@@ -293,7 +295,8 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
   // Identical repeats of a member (the same command relaunched by the same parent) are one row.
   const linksOf = (k: string) => investigation.decisions.get(k)?.links;
   const incidentOrder = [...members].sort(byStart);
-  const same = identicalMembers(incidentOrder, nodes, linksOf, new Set([seedKey]));
+  const confirmedKeys = new Set(options.confirmed ?? []);
+  const same = identicalMembers(incidentOrder, nodes, linksOf, new Set([seedKey, ...confirmedKeys]));
   const rejectedOrder = [...investigation.decisions.values()].filter(d => !d.related).map(d => d.key).sort(byStart);
   const fold = (order: string[], representative: Map<string, string>, rowOf: (k: string) => ProcessRow) => {
     const rows = new Map<string, ProcessRow>();
@@ -359,7 +362,8 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
       input_tokens: calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0), output_tokens: calls.reduce((s, c) => s + (c.output_tokens ?? 0), 0),
       slowest_call_ms: Math.round(Math.max(0, ...calls.map(c => c.ms))),
       ...(investigation.stopped ? {stopped: investigation.stopped} : {})},
-    incident: fold(incidentOrder, same, k => row(nodes, k, investigation.decisions.get(k), investigation.since.get(k), events)),
+    incident: fold(incidentOrder, same, k => ({...row(nodes, k, investigation.decisions.get(k), investigation.since.get(k), events),
+      ...(confirmedKeys.has(k) && k !== seedKey ? {confirmed: true as const} : {})})),
     rejected: fold(rejectedOrder, identicalMembers(rejectedOrder, nodes, linksOf, new Set()), k => row(nodes, k, investigation.decisions.get(k), undefined, events)),
     timeline,
     ...(options.context ? {context: contextEvents(loaded, investigation)} : {}),
