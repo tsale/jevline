@@ -47,7 +47,7 @@ test('each step of a repeated loop is asked once, with only the first run as con
   const loaded = await load([{path, format: 'auto' as const}]);
   const {report} = await analyze(loaded, findSeed(loaded, 'name:invoice.exe').key, new JevClient(counting),
     {description: 'Confirmed malicious.', model: 'm', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 10, transport: 'test'});
-  assert.equal(report.stopped, undefined, 'ten questions a round are enough for 120 loop processes');
+  assert.equal(report.jev.stopped, undefined, 'ten questions a round are enough for 120 loop processes');
   const loopQuestions = asked.filter(a => a.candidates.some(n => ['powershell.exe', 'py.exe', 'python.exe'].includes(n) ||
     a.occurrences.some(o => o === RUNS)));
   for (const name of ['powershell.exe', 'py.exe', 'python.exe']) {
