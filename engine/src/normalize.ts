@@ -40,6 +40,14 @@ const F = {
   targetName: paths('Target.process.name'),
   access: paths('winlog.event_data.GrantedAccess', 'GrantedAccess'),
   apiName: paths('process.Ext.api.name'),
+  realParentPid: paths('process.parent.Ext.real.pid'),
+  apiBehaviors: paths('process.Ext.api.behaviors'),
+  targetSuspended: paths('Target.process.Ext.created_suspended'),
+  effectiveParentGuid: paths('process.Ext.effective_parent.entity_id'),
+  effectiveParentPid: paths('process.Ext.effective_parent.pid'),
+  effectiveParentPath: paths('process.Ext.effective_parent.executable'),
+  effectiveParentName: paths('process.Ext.effective_parent.name'),
+  tampering: paths('winlog.event_data.Type', 'Type'),
   filePath: paths('file.path', 'winlog.event_data.TargetFilename', 'TargetFilename', 'dll.path', 'winlog.event_data.ImageLoaded', 'ImageLoaded', 'file'),
   fileSha256: paths('file.hash.sha256', 'dll.hash.sha256'),
   pipe: paths('winlog.event_data.PipeName', 'PipeName', 'file.name'),
@@ -81,6 +89,19 @@ function getter(record: RawRecord): Get {
     }
     return undefined;
   };
+}
+
+/** Every value of a field that holds a list (the getter keeps the first): Elastic's API behaviors, for one. */
+function every(record: RawRecord, field: readonly Path[]): string[] {
+  for (const p of field) {
+    let v: unknown = record.flat ? record.flat.get(p.norm) : record.nested![p.dotted];
+    if (v === undefined && !record.flat) {
+      v = record.nested;
+      for (const part of p.parts) { if (!isObj(v)) { v = undefined; break; } v = v[part]; }
+    }
+    if (v !== undefined && v !== null && v !== '') return (Array.isArray(v) ? v : [v]).map(x => String(x).toLowerCase());
+  }
+  return [];
 }
 
 const str = (v: unknown): string | undefined => typeof v === 'string' ? v : typeof v === 'number' ? String(v) : undefined;
@@ -151,12 +172,14 @@ export function parseTime(v: unknown): number | null {
 const SYSMON: Record<string, Kind> = {
   '1': 'process_start', '5': 'process_end', '3': 'network', '7': 'image_load', '8': 'inject', '10': 'process_access',
   '11': 'file_create', '15': 'file_create', '29': 'file_create', '23': 'file_delete', '26': 'file_delete', '2': 'file_time',
-  '13': 'registry_set', '17': 'pipe_create', '18': 'pipe_connect', '22': 'dns',
+  '13': 'registry_set', '17': 'pipe_create', '18': 'pipe_connect', '22': 'dns', '25': 'tamper',
 };
 const SECURITY: Record<string, Kind> = {'4688': 'process_start', '4689': 'process_end', '4697': 'service_install', '4698': 'task_create',
   '4624': 'logon', '4625': 'logon_failed'};
 const SYSTEM: Record<string, Kind> = {'7045': 'service_install'};
-const INJECTION_APIS = /^(WriteProcessMemory|CreateRemoteThread\w*|NtCreateThreadEx|QueueUserAPC\w*|NtQueueApcThread\w*|SetThreadContext|NtMapViewOfSection|MapViewOfFile\w*|VirtualAllocEx|NtWriteVirtualMemory)$/i;
+const INJECTION_APIS = /^(WriteProcessMemory|CreateRemoteThread\w*|NtCreateThreadEx|QueueUserAPC\w*|NtQueueApcThread\w*|SetThreadContext|Wow64SetThreadContext|NtSetContextThread|NtMapViewOfSection|MapViewOfFile\w*|VirtualAllocEx|NtWriteVirtualMemory)$/i;
+/** Elastic Defend's marks on an API call that ran code in the target. */
+const RAN_CODE = new Set(['hollow_image', 'shellcode', 'allocate_shellcode', 'execute_shellcode']);
 
 function family(origin: string): string {
   if (origin.includes('sysmon')) return 'sysmon';
@@ -278,12 +301,35 @@ export function normalize(record: RawRecord, file: number, seq: number, stats?: 
     case 'process_start': {
       const parent = proc(get, 'parent', kind, source);
       if (Object.keys(parent).length) event.parent = parent;
+      const real = int(get(F.realParentPid));
+      if (real !== undefined && real > 0 && real !== parent.pid) event.realParent = {pid: real};
+      const effective: ProcRef = {};
+      const g = guid(get(F.effectiveParentGuid)), pid = int(get(F.effectiveParentPid));
+      const path = str(get(F.effectiveParentPath))?.trim(), name = str(get(F.effectiveParentName))?.trim() || (path ? basename(path) : undefined);
+      if (g) effective.guid = g;
+      if (pid !== undefined && pid > 0) effective.pid = pid;
+      if (path) effective.path = path;
+      if (name) effective.name = name;
+      const sameAsParent = effective.guid && parent.guid ? effective.guid === parent.guid : effective.pid === parent.pid;
+      if ((effective.guid || effective.pid !== undefined) && !sameAsParent) event.effectiveParent = effective;
       break;
     }
     case 'inject': case 'process_access': {
       event.target = proc(get, 'target', kind, source);
+      const api = str(get(F.apiName))?.trim();
+      if (kind === 'inject' && api) event.api = api;
+      if (kind === 'inject') {
+        const ran = every(record, F.apiBehaviors).filter(b => RAN_CODE.has(b));
+        if (ran.length) event.behaviors = ran;
+        if (String(get(F.targetSuspended)).toLowerCase() === 'true') event.target_suspended = true;
+      }
       const access = int(get(F.access));
       if (access !== undefined) event.access = access;
+      break;
+    }
+    case 'tamper': {
+      const what = str(get(F.tampering))?.trim();
+      if (what) event.tampering = what;
       break;
     }
     case 'file_create': case 'file_delete': case 'file_time': case 'image_load': {

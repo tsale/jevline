@@ -6,7 +6,7 @@
 import type {EntityType, Event, Link, LinkType, ProcessNode} from './model.ts';
 import {isInternal} from './entities.ts';
 import type {Graph} from './links.ts';
-import {compareLinks, describe, EXECUTABLE, injectionCapable, PERSISTENCE_KEY, UNDIRECTED} from './links.ts';
+import {compareLinks, conclusiveInjection, describe, EXECUTABLE, injectionCapable, PERSISTENCE_KEY, UNDIRECTED} from './links.ts';
 import type {JevClient, JevResponse} from './jev.ts';
 import {sha256} from './jev.ts';
 
@@ -54,7 +54,9 @@ export interface Decision {
   /** Within `margin` of the threshold. */
   review: boolean;
   links: Link[];
-  request: string;  // SHA-256 of the request body that decided it
+  request: string;  // SHA-256 of the request body that decided it ('' when no question was asked)
+  /** Joined without a question: an incident process injected into it completely (see conclusiveInjection). */
+  basis?: 'injection';
 }
 
 export interface Investigation {
@@ -106,7 +108,12 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
     if (!pending.length) break;
     for (const [, links] of pending) links.sort(compareLinks(nodes));
     pending.sort(([a, la], [b, lb]) => compareLinks(nodes)(la[0]!, lb[0]!) || describe(nodes.get(a)).localeCompare(describe(nodes.get(b))) || a.localeCompare(b));
-    const groups = group(ctx, pending, options.group ?? true);
+    // A complete injection by a member (code written into memory it allocated in the target, or run there by a
+    // remote thread, an APC or a hijacked thread) carries the incident into the target as surely as starting it
+    // would: the target joins from the injection, without a question. What it did before stays out.
+    const injectedBy = (links: Link[]) => links.some(l => l.type === 'injected' && members.has(l.from) && conclusiveInjection(l.detail));
+    const direct = pending.filter(([, links]) => injectedBy(links));
+    const groups = group(ctx, pending.filter(([, links]) => !injectedBy(links)), options.group ?? true);
     if (groups.length > options.maxCandidatesPerRound) {
       stopped = `round ${round + 1} would ask ${groups.length} questions about ${pending.length} candidates (limit ${options.maxCandidatesPerRound})`;
       break;
@@ -121,6 +128,14 @@ export async function investigate(events: Event[], nodes: Map<string, ProcessNod
       return {batch, labels, response, digest: sha256(body)};
     }));
     const joined: string[] = [];
+    for (const [key, links] of direct) {
+      const decision: Decision = {key, round, group_size: 1, probability: 1, related: true, threshold: thresholdFor(ctx, key, options, links),
+        review: false, links, request: '', basis: 'injection'};
+      decisions.set(key, decision);
+      history.push(decision);
+      asked.set(key, signature(links));
+      joined.push(key);
+    }
     for (const {batch, labels, response, digest} of answered) {
       batch.forEach((g, i) => {
         const probability = readAnswer(response, labels[i]!);

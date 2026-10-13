@@ -43,9 +43,10 @@ test('the incident: injection, drop and run, persistence, causality and noise', 
   assert.deepEqual(result.incident.toSorted(), EXPECTED.toSorted());
   // rundll32 only shares a pipe and explorer was only opened with full access: the stand-in scores both 0.5 or less.
   assert.deepEqual(result.rejected.toSorted(), ['explorer.exe:1000', 'rundll32.exe:5000']);
-  // taskhostw.exe was started by sihost.exe 30 minutes before the injection, so it is never asked about,
-  // and chrome.exe (started by explorer.exe, which never joined) is not a candidate either.
-  assert.deepEqual(result.asked, ['203.0.113.9', 'cmd.exe', 'evil.example', 'explorer.exe', 'rundll32.exe', 'sihost.exe', 'stage2.exe', 'upd.exe', 'whoami.exe']);
+  // sihost.exe, which the seed started a remote thread in, joins without a question. taskhostw.exe was started
+  // by sihost.exe 30 minutes before the injection, so it is never asked about, and chrome.exe (started by
+  // explorer.exe, which never joined) is not a candidate either.
+  assert.deepEqual(result.asked, ['203.0.113.9', 'cmd.exe', 'evil.example', 'explorer.exe', 'rundll32.exe', 'stage2.exe', 'upd.exe', 'whoami.exe']);
   assert.equal(result.bodies.some(b => b.includes('taskhostw.exe')), false);
   // stage2.exe's credential read of lsass.exe is not a link, but Jev sees it as stage2's activity.
   assert.ok(result.bodies.some(b => b.includes('"accessed":["lsass.exe (0x1410)"]')));
