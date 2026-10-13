@@ -5,7 +5,9 @@ import type {Processes} from './identity.ts';
 import {timeOrder} from './identity.ts';
 import {addEntities} from './entities.ts';
 
-const PROCESS_CREATE_THREAD = 0x2, PROCESS_VM_OPERATION = 0x8, PROCESS_VM_WRITE = 0x20;
+const PROCESS_CREATE_THREAD = 0x2, PROCESS_VM_OPERATION = 0x8, PROCESS_VM_WRITE = 0x20, PROCESS_CREATE_PROCESS = 0x80;
+/** A process started this soon after another opened its parent with create-process rights was started through that handle. */
+const THROUGH_HANDLE = 5_000_000;
 const ALL_ACCESS = [0x1fffff, 0x1f0fff];
 const SKEW = 2_000_000;  // µs of clock difference tolerated between sources
 const EVIDENCE = 3;
@@ -17,6 +19,25 @@ export const injectionCapable = (mask: number): boolean =>
 
 /** Paths compared case-insensitively, ignoring slash direction and how the volume is written: "C:\\x",
  * "\\\\?\\C:\\x" and an EDR's "\\Device\\HarddiskVolume3\\x" are the same file. */
+/** Injection steps that put code in another process (a write or a mapped view) and that run it there (a remote
+ * thread, an APC, a hijacked thread context). */
+const WRITES = /^(WriteProcessMemory|NtWriteVirtualMemory|NtMapViewOfSection|MapViewOfFile\w*)$/i;
+const RUNS = /^(CreateRemoteThread\w*|NtCreateThreadEx|QueueUserAPC\w*|NtQueueApcThread\w*|SetThreadContext|Wow64SetThreadContext|NtSetContextThread)$/i;
+/** Techniques an injection's records prove on their own: the target's image replaced by the process that created
+ * it, or code the sensor recognised as shellcode written or run in the target. */
+const HOLLOWING = 'process hollowing', SHELLCODE = 'shellcode';
+
+/** An injection the records show completely: code run in the target (a remote thread, an APC or a hijacked
+ * thread), code written into memory allocated there, process hollowing or shellcode. `detail` is an `injected`
+ * link's steps and, in brackets, the techniques they show ("WriteProcessMemory + SetThreadContext (process
+ * hollowing)"). A write alone (debuggers and security products write into other processes) is not. */
+export const conclusiveInjection = (detail: string | undefined): boolean => {
+  const [, how = '', techniques = ''] = /^(.*?)(?: \(([^()]*)\))?$/.exec(detail ?? '') ?? [];
+  if (techniques.split(', ').some(t => t === HOLLOWING || t === SHELLCODE)) return true;
+  const steps = how.split(' + ');
+  return steps.some(s => RUNS.test(s)) || steps.some(s => WRITES.test(s)) && steps.includes('VirtualAllocEx');
+};
+
 export const pathKey = (path: string): string => path.trim().replace(/^\\\\\?\\/, '').replace(/\//g, '\\').toLowerCase()
   .replace(/^\\device\\harddiskvolume\d+(?=\\)/, '').replace(/^[a-z]:(?=\\)/, '');
 
@@ -80,7 +101,27 @@ export function buildLinks(events: Event[], processes: Processes): Graph {
 
   for (const n of nodes.values()) {
     if (n.parent && nodes.has(n.parent)) add('spawned', n.parent, n.key, n.start, n.starts[0] ?? null);
+    // Parent PID spoofing: the process that really created it is its parent too.
+    if (n.realParent && nodes.has(n.realParent)) add('spawned', n.realParent, n.key, n.start, n.starts[0] ?? null,
+      `created it posing as a child of ${(n.parent && nodes.get(n.parent)?.name) ?? 'another process'}`);
+    // Started through WMI, COM or the Task Scheduler: the broker is its recorded parent, the requester is this.
+    if (n.effectiveParent && nodes.has(n.effectiveParent)) add('spawned', n.effectiveParent, n.key, n.start, n.starts[0] ?? null,
+      `had it started through ${(n.parent && nodes.get(n.parent)?.name) ?? 'a broker'}`);
   }
+  const steps = new Map<string, Set<string>>();  // injected link id -> the injection steps seen
+  const techniques = new Map<string, Set<string>>();  // injected link id -> the techniques the steps show
+  const injected = (from: string, to: string, t: number | null, seq: number, step: string, technique?: string) => {
+    add('injected', from, to, t, seq, step);
+    const id = `injected|${from}|${to}`;
+    const seen = steps.get(id);
+    if (seen) seen.add(step); else steps.set(id, new Set([step]));
+    if (!technique) return;
+    const shown = techniques.get(id);
+    if (shown) shown.add(technique); else techniques.set(id, new Set([technique]));
+  };
+  // The process that created another (really, when its recorded parent is a spoof).
+  const creator = (key: string) => { const n = nodes.get(key); return n?.realParent ?? n?.parent; };
+  const createHandles = new Map<string, Write[]>();  // process -> handles others opened to it with create-process rights
 
   const writes = new Map<string, Write[]>();    // path -> writes in time order
   const hashes = new Map<string, Write[]>();    // sha256 of written file -> writes
@@ -107,12 +148,25 @@ export function buildLinks(events: Event[], processes: Processes): Graph {
     switch (e.kind) {
       case 'inject': {
         const to = target.get(i);
-        if (to) add('injected', from, to, e.t, i, e.source === 'sysmon:8' ? 'CreateRemoteThread' : e.source);
+        if (!to || to === from) break;
+        const step = e.api ?? (e.source === 'sysmon:8' ? 'CreateRemoteThread' : e.source);
+        // Hollowing: the process that created the target suspended (or that Elastic saw replace its image) writes
+        // into it or redirects its thread. Elastic also marks shellcode it saw written or run.
+        const hollowed = creator(to) === from && (e.target_suspended || e.behaviors?.includes('hollow_image'));
+        const shellcode = e.behaviors?.some(b => b.includes('shellcode'));
+        injected(from, to, e.t, i, step, hollowed ? HOLLOWING : shellcode ? SHELLCODE : undefined);
+        break;
+      }
+      case 'tamper': {
+        // Sysmon saw the image of this process replaced after it started: its creator hollowed it.
+        const by = /replaced/i.test(e.tampering ?? '') ? creator(from) : undefined;
+        if (by && by !== from) injected(by, from, e.t, i, 'image replaced', HOLLOWING);
         break;
       }
       case 'process_access': {
         const to = target.get(i);
         if (to && e.access !== undefined && injectionCapable(e.access)) add('opened_for_injection', from, to, e.t, i, `0x${e.access.toString(16)}`);
+        if (to && to !== from && e.access !== undefined && (e.access & PROCESS_CREATE_PROCESS)) push(createHandles, to, {t: e.t, key: from, seq: i});
         break;
       }
       case 'file_create':
@@ -140,6 +194,23 @@ export function buildLinks(events: Event[], processes: Processes): Graph {
       case 'service_install': case 'task_create':
         for (const p of launchedPaths(e.launches)) push(persisted, p, {t: e.t, key: from, seq: i});
         break;
+    }
+  }
+
+  // Every step an injection took, in the order first seen: "VirtualAllocEx + WriteProcessMemory".
+  for (const [id, seen] of steps) {
+    const link = byId.get(id), shown = techniques.get(id);
+    if (link) link.detail = [...seen].join(' + ') + (shown ? ` (${[...shown].join(', ')})` : '');
+  }
+
+  // A process started through a handle to its recorded parent (parent PID spoofing, as Sysmon shows it): the
+  // process that opened the parent with create-process rights just before created it.
+  for (const n of nodes.values()) {
+    if (!n.parent || n.start === null || n.realParent) continue;
+    const parentName = nodes.get(n.parent)?.name ?? 'its parent';
+    for (const h of createHandles.get(n.parent) ?? []) {
+      if (h.key === n.key || h.t === null || h.t > n.start + SKEW || h.t < n.start - THROUGH_HANDLE) continue;
+      add('spawned', h.key, n.key, n.start, h.seq, `created it through a handle to ${parentName}`, h.t);
     }
   }
 

@@ -5,7 +5,7 @@ import type {EntityType, Event, LinkType, ProcessNode} from './model.ts';
 import type {Format} from './read.ts';
 import {canonicalHost, canonicalUser, guid, type NormalizeStats} from './normalize.ts';
 import {resolveProcesses, timeOrder} from './identity.ts';
-import {buildLinks, type Graph} from './links.ts';
+import {buildLinks, injectionCapable, type Graph} from './links.ts';
 import {investigate, relative, SKEW, type Decision, type InvestigateOptions, type Investigation} from './investigate.ts';
 import type {JevClient} from './jev.ts';
 import type {Mapping, Profiles} from './schema.ts';
@@ -18,6 +18,8 @@ export interface Loaded {
   nodes: Map<string, ProcessNode>;
   /** Node key of each event's process (index = event seq). */
   actor: string[];
+  /** Node key of the process an injection or handle event reaches into (by event seq). */
+  target: Map<number, string>;
   graph: Graph;
   stats: NormalizeStats;
   /** Events dropped because an earlier input file already had them. */
@@ -82,7 +84,7 @@ export function assemble(all: Event[], stats: NormalizeStats, inputs: Loaded['in
   t = performance.now();
   const graph = buildLinks(events, processes);
   timings.build_links = ms(t);
-  return {inputs, events, nodes: processes.nodes, actor: processes.actor, graph, stats, duplicates, schemas, timings};
+  return {inputs, events, nodes: processes.nodes, actor: processes.actor, target: processes.target, graph, stats, duplicates, schemas, timings};
 }
 
 /** Check learned process-start mappings against the data: if almost no started process has a parent
@@ -178,6 +180,8 @@ export interface ProcessRow {
   joined?: {round: number; probability: number; threshold: number;
     /** SHA-256 of the exact Jev request that decided it (its line in requests.jsonl). */
     request: string; review?: true; group_size?: number;
+    /** Joined without a question because an incident process injected into it completely ('' request). */
+    basis?: 'injection';
     /** Each link that brought it in: its type, the member it came from (a label, and that member's key), when, and what it says. */
     via: {link: LinkType; from?: string; from_key: string; at?: string; detail?: string}[]};
   /** The same process again (same executable, user and parent, linked the same way; see repeats.ts): how
@@ -207,7 +211,15 @@ export interface TimelineRow {
    * usual interval in seconds, the last repeat's event, and how many different details (file names or
    * command lines that differed only in their changing parts) the row stands for. */
   count?: number; until?: string; until_since_seed?: string; every_s?: number; last_event_id?: string; variants?: number;
+  /** An injection, or a handle that can inject or create processes, into a process outside the incident: that
+   * process, and what it did in the AFTER window that followed (its children, connections, lookups, writes, its
+   * own injections and handles). Shown so a target Jev did not link still gets reviewed. */
+  target?: string; target_after?: string[];
 }
+
+/** How long after an incident process reaches into an outside process that process's activity is shown. */
+const AFTER = 300_000_000;  // µs (5 minutes)
+const PROCESS_CREATE_PROCESS = 0x80;
 
 /** ISO 8601 with microseconds. */
 export const iso = (t: number | null | undefined): string | undefined => {
@@ -224,6 +236,7 @@ function row(nodes: Map<string, ProcessNode>, key: string, decision?: Decision, 
     type: n.type, name: n.name, pid: n.pid, host: n.host || undefined, path: n.path, command_line: n.cmd, user: n.user, sha256: n.sha256,
     start: iso(n.start), first_seen: n.type === 'process' ? undefined : iso(n.firstSeen), end: iso(n.end), key, start_event: start, joined_incident: iso(joined),
     joined: decision && {round: decision.round, probability: decision.probability, threshold: decision.threshold, request: decision.request, ...(decision.review ? {review: true as const} : {}),
+      ...(decision.basis ? {basis: decision.basis} : {}),
       ...(decision.group_size > 1 ? {group_size: decision.group_size} : {}),
       via: decision.links.map(l => ({link: l.type, from: label(l.from === key ? l.to : l.from), from_key: l.from === key ? l.to : l.from, at: iso(l.t), detail: l.detail}))},
   }).filter(([, v]) => v !== undefined)) as unknown as ProcessRow;
@@ -232,7 +245,9 @@ function row(nodes: Map<string, ProcessNode>, key: string, decision?: Decision, 
 function detail(e: Event): string | undefined {
   switch (e.kind) {
     case 'process_start': return e.proc.cmd ?? e.proc.path;
-    case 'inject': case 'process_access': return [e.target?.name ?? e.target?.path, e.access !== undefined ? `0x${e.access.toString(16)}` : undefined].filter(Boolean).join(' ');
+    case 'inject': case 'process_access': return [e.target?.name ?? e.target?.path, e.api, e.access !== undefined ? `0x${e.access.toString(16)}` : undefined,
+      e.target_suspended ? '(created suspended)' : undefined, e.behaviors?.length ? `(${e.behaviors.join(', ')})` : undefined].filter(Boolean).join(' ');
+    case 'tamper': return e.tampering;
     case 'file_create': case 'file_delete': case 'file_time': case 'image_load': return e.file_path;
     case 'network': return `${e.src?.ip && !e.proc.pid && !e.proc.guid ? `${e.src.ip} → ` : ''}${[e.net?.domain ?? e.net?.ip, e.net?.port].filter(x => x !== undefined).join(':')}`;
     case 'dns': return e.net?.domain;
@@ -323,6 +338,32 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
   const by = (i: number) => { const key = loaded.actor[i]!; return members.has(key) ? same.get(key) ?? key : `${entityOf.get(i)}|${key}`; };
   const timeline: TimelineRow[] = [];
   const details = shown.map(i => detail(events[i]!));
+  const childrenOf = new Map<string, ProcessNode[]>();
+  for (const n of nodes.values()) if (n.parent) { const list = childrenOf.get(n.parent); if (list) list.push(n); else childrenOf.set(n.parent, [n]); }
+  const followUp = (i: number): {target?: string; target_after?: string[]} => {
+    const e = events[i]!, to = loaded.target.get(i), n = to ? nodes.get(to) : undefined;
+    if (!to || !n || members.has(to) || e.t === null) return {};
+    if (e.kind === 'process_access' && (e.access === undefined || !(injectionCapable(e.access) || e.access & PROCESS_CREATE_PROCESS))) return {};
+    if (e.kind !== 'inject' && e.kind !== 'process_access') return {};
+    const within = (t: number | null) => t !== null && t > e.t! && t <= e.t! + AFTER;
+    const after: string[] = [];
+    const note = (text: string) => { if (after.length < 8 && !after.includes(text)) after.push(text); };
+    for (const c of childrenOf.get(to) ?? []) if (within(c.start)) note(`started ${c.name ?? 'a process'}${c.cmd ? `: ${c.cmd.slice(0, 200)}` : ''}`);
+    // A process's events are in time order (undated last): start at the first one after the access.
+    let lo = 0, hi = n.events.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1, t = events[n.events[mid]!]!.t; if (t !== null && t <= e.t) lo = mid + 1; else hi = mid; }
+    for (let k = lo; k < n.events.length && after.length < 8; k++) {
+      const x = events[n.events[k]!]!;
+      if (x.t === null || x.t > e.t + AFTER) break;
+      if (x.kind === 'network') note(`connected to ${detail(x)}`);
+      else if (x.kind === 'dns') note(`looked up ${detail(x)}`);
+      else if (x.kind === 'file_create') note(`wrote ${detail(x)}`);
+      else if (x.kind === 'inject') note(`injected into ${detail(x)}`);
+      else if (x.kind === 'process_access' && x.access !== undefined && injectionCapable(x.access)) note(`opened ${detail(x)}`);
+      else if (x.kind === 'registry_set') note(`set ${detail(x)}`);
+    }
+    return {target: `${n.name ?? 'a process'} (${n.pid ?? '?'})`, ...(after.length ? {target_after: after} : {})};
+  };
   const activity = (j: number) => { const e = events[shown[j]!]!; return JSON.stringify([e.host, by(shown[j]!), e.kind, sameDetail(e.kind, details[j])]); };
   for (const run of runs(shown.map((_, j) => j), activity, j => events[shown[j]!]!.t)) {
     const i = shown[run[0]!]!, e = events[i]!, key = loaded.actor[i]!;
@@ -339,7 +380,7 @@ export async function analyze(loaded: Loaded, seedKey: string, client: JevClient
     timeline.push(Object.fromEntries(Object.entries({time: iso(e.t), since_seed: relative(e.t, origin) ?? undefined, host: e.host,
       process: process?.name, pid: process?.pid, entity: process ? undefined : entityOf.get(i), member: process ? key : entityKey.get(i),
       kind: e.kind, detail: details[run[0]!], event_id: e.id,
-      input: e.file, line: e.line, source: e.source, ...repeated}).filter(([, v]) => v !== undefined)) as unknown as TimelineRow);
+      input: e.file, line: e.line, source: e.source, ...repeated, ...followUp(i)}).filter(([, v]) => v !== undefined)) as unknown as TimelineRow);
   }
   const calls = client.calls;
   const linksByType: Partial<Record<LinkType, number>> = {};

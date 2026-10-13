@@ -64,8 +64,9 @@ for (const id of used) assert.ok(ids.has(id), `#${id} is in the page`);
   const chain = View.chainMarkdown(report);
   assert.match(chain, /^## Incident chain from Jev results/);
   assert.match(chain, /\n- \*\*2\.8\.exe\*\* \(PID 8788\) · confirmed seed · started /);
-  assert.match(chain, /\n {2}- injected into → \*\*sihost\.exe\*\* \(PID 7328\) · Jev 90% · running before the logs/);
-  assert.match(chain, /\*\*RuntimeBroker\.exe\*\* \(PID 9972\) · Jev 90% · running before the logs · ×5 identical/);
+  // Complete injections join without a Jev question, and say so instead of showing a score.
+  assert.match(chain, /\n {2}- injected into → \*\*sihost\.exe\*\* \(PID 7328\) · joined by injection, no Jev question · running before the logs/);
+  assert.match(chain, /\*\*RuntimeBroker\.exe\*\* \(PID 9972\) · joined by injection, no Jev question · running before the logs · ×5 identical/);
   assert.match(chain, new RegExp(`${[...members.values()].filter(m => m.row.type === 'process').length} processes and `));
   // Under each process, what it did: the seed's drop, timestomp, persistence and network, with citations.
   for (const line of [/\n {2}- File write `C:\\Users\\USER_1\\AppData\\Roaming\\Microsoft\\Windows\\Services\\wlrmdr\.exe` ×2 \[evt:/,

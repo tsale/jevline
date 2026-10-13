@@ -92,8 +92,8 @@ files ─▶ read ─▶ normalize ─▶ processes ─▶ links ─▶ rounds o
 
    | Link | From |
    |---|---|
-   | `spawned` | parent and child |
-   | `injected` | Sysmon 8, EDR injection APIs |
+   | `spawned` | parent and child; also the process that really created a child under a spoofed parent (Elastic Defend `process.parent.Ext.real.pid`), one that opened the child's recorded parent with create-process rights (0x80) at most 5 s before it started, and the process that had the child started through WMI, COM or the Task Scheduler (Elastic Defend `process.Ext.effective_parent`; the broker, such as WmiPrvSE.exe, is the recorded parent) |
+   | `injected` | Sysmon 8, EDR injection APIs, and Sysmon 25 (`Image is replaced`) from the process's creator. `detail` lists the steps and, in brackets, the technique they prove: `VirtualAllocEx + WriteProcessMemory`, `WriteProcessMemory + SetThreadContext (process hollowing)`, `WriteProcessMemory (shellcode)` |
    | `opened_for_injection` | a handle with VM write and operation, create thread, or full access (credential reads such as `0x1410` are activity, not links) |
    | `dropped_and_ran` | the last process to write the file (or one with the same SHA-256) a process started from |
    | `dropped_and_loaded` | the last process to write a DLL another process loaded |
@@ -115,6 +115,8 @@ files ─▶ read ─▶ normalize ─▶ processes ─▶ links ─▶ rounds o
 4. **Rounds.** Starting from the seed, each round collects every process that a link connects to the incident, asks Jev about all of them, and adds the ones Jev links. It stops when a round adds nothing.
    - **Causality:** a process can only pass the incident on through what it did after it joined. A child that explorer.exe started before 2.8.exe injected into it is never even a candidate.
    - **Re-asking:** a process Jev rejected is asked again only if new links reach it.
+   - **Complete injections join without a question.** When an incident process injects into another completely (memory it allocated there and wrote, or a remote thread, APC or hijacked thread context, including `Wow64SetThreadContext`), the target joins from the injection, marked `basis: injection`. So does a process its creator hollowed (started it suspended and wrote into it or set its thread context, Elastic Defend marked the write `hollow_image`, or Sysmon 25 saw its image replaced) and one Elastic Defend saw receive shellcode (`shellcode`, `allocate_shellcode`, `execute_shellcode`). A long-running process such as explorer.exe would otherwise be judged on its whole life and score low: in one real intrusion a ghosted payload allocated and wrote memory in the user's Explorer, which then contacted new infrastructure and injected into Edge. A single write is still a question: debuggers and security products write into other processes.
+   - **Reach into processes left out.** A timeline row for an injection, or a handle that can inject or create processes, into a process outside the incident carries `target` and `target_after`: what that process did in the next five minutes (its children, connections, lookups, writes, injections and handles). The review sees where the attacker went even when Jev does not link it.
 5. **Questions.** Each candidate gets its own request with one Noul: "part of the same incident, continuing its malicious execution chain?". Jev isn't asked for a basis: the links already record exactly how a process is connected, and in the live check a Choice between overlapping bases changed between identical requests. It sees:
    - the seed;
    - the incident processes the candidate's links come from, and when each joined;

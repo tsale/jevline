@@ -7,6 +7,7 @@ export type Kind =
   | 'process_start' | 'process_end'
   | 'inject'          // A wrote into or started a thread in B (Sysmon 8, EDR injection APIs)
   | 'process_access'  // A opened a handle to B (Sysmon 10); `access` has the mask
+  | 'tamper'          // A's image was replaced or locked in memory after it started (Sysmon 25: hollowing, herpaderping)
   | 'file_create' | 'file_delete' | 'file_time' | 'image_load'
   | 'network' | 'dns'
   | 'registry_set'
@@ -53,6 +54,21 @@ export interface Event {
   file_path?: string;
   file_sha256?: string;
   access?: number;           // process_access GrantedAccess mask
+  /** inject: the API the record names (VirtualAllocEx, WriteProcessMemory, QueueUserAPC...). */
+  api?: string;
+  /** inject: what Elastic Defend saw the call do, when it marks it as running code: replacing the image of a
+   * process (hollow_image) or writing or running shellcode (shellcode, allocate_shellcode, execute_shellcode). */
+  behaviors?: string[];
+  /** inject: the target was created suspended, as process hollowing and early-bird injection create it. */
+  target_suspended?: true;
+  /** tamper: what was done to the image ("Image is replaced", "Image is locked for access"). */
+  tampering?: string;
+  /** process_start: the process that really created this one when it posed as another's child (parent PID
+   * spoofing); Elastic Defend records it as process.parent.Ext.real.pid. */
+  realParent?: ProcRef;
+  /** process_start: the process that had it started through a broker (WMI, COM, the Task Scheduler), which
+   * is then its recorded parent; Elastic Defend records it as process.Ext.effective_parent. */
+  effectiveParent?: ProcRef;
   net?: {ip?: string; port?: number; domain?: string};
   /** dns: an answer the resolver relayed (Elastic Defend's lookup_result, logged by the DNS Client
    * service), not a lookup by this process. The asking process has its own lookup_requested event. */
@@ -94,6 +110,10 @@ export interface ProcessNode {
   user?: string;
   sha256?: string;
   parent?: string;        // parent node key
+  /** The process that really created this one, when its recorded parent is a spoof. */
+  realParent?: string;
+  /** The process that had this one started through a broker (WMI, COM, the Task Scheduler). */
+  effectiveParent?: string;
   /** Every event this process did (seq numbers, in time order once indexed). */
   events: number[];
   /** process_start events that describe this process's creation (Sysmon 1, 4688, EDR...). */

@@ -165,6 +165,17 @@ export function resolveProcesses(events: Event[]): Processes {
       if (n.parent === n.key) delete n.parent;
       else describe(n.parent, start.parent);
     }
+    if (start?.realParent) {
+      const real = resolve(n.host, start.realParent, start.t, start.seq);
+      if (real !== n.key && real !== n.parent) n.realParent = real;
+    }
+    if (start?.effectiveParent) {
+      const effective = resolve(n.host, start.effectiveParent, start.t, start.seq);
+      if (effective !== n.key && effective !== n.parent && effective !== n.realParent) {
+        n.effectiveParent = effective;
+        describe(effective, start.effectiveParent);
+      }
+    }
   }
   for (const [i, key] of target) describe(key, events[i]!.target!);
   for (const n of nodes.values()) fillAttributes(n, events, seenAs.get(n.key) ?? []);

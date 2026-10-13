@@ -40,7 +40,8 @@ async function engineRequests(file, seed, p) {
   const {MODEL: engineModel} = await import(path.join(__dirname, '..', 'engine', 'src', 'jev.ts'));
   assert.equal(MODEL, engineModel, 'the relay checks requests against the engine\'s model');
   const requests = await engineRequests(path.join(__dirname, '..', 'examples', 'malicious_events.json'), 'name:2.8.exe', 0.95);
-  assert.ok(requests.length > 3);
+  // Its injections and hollowing join without a question, so three questions remain; the checks below use all three.
+  assert.ok(requests.length >= 3);
   const {requestProblem} = require('../api/_relay.js');
   for (const body of requests) assert.equal(requestProblem(body), null);
 
