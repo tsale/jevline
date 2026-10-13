@@ -16,8 +16,8 @@
   function members(report) {
     const map = new Map();
     for (const row of report.incident) {
-      map.set(row.key, {row, probability: row.joined?.probability, seed: row.key === report.seed.key});
-      for (const other of row.repeats?.others || []) map.set(other.key, {row, probability: other.probability ?? row.joined?.probability, seed: false, repeat: true});
+      map.set(row.key, {row, probability: row.joined?.probability, basis: row.joined?.basis, seed: row.key === report.seed.key});
+      for (const other of row.repeats?.others || []) map.set(other.key, {row, probability: other.probability ?? row.joined?.probability, basis: row.joined?.basis, seed: false, repeat: true});
     }
     return map;
   }
@@ -34,7 +34,8 @@
     const member = memberMap.get(row.member);
     if (!member) return {kind: 'context', label: 'Linked', score: 'Linked'};
     if (member.seed) return {kind: 'seed', label: 'Confirmed seed', score: 'Seed · confirmed', member};
-    const score = typeof member.probability === 'number' ? `Jev ${pct(member.probability)}` : 'Jev-linked';
+    // A process an incident process injected into completely joined without a Jev question.
+    const score = member.basis === 'injection' ? 'Injected, no question' : typeof member.probability === 'number' ? `Jev ${pct(member.probability)}` : 'Jev-linked';
     if (row.kind === 'process_start' || !row.process) return {kind: 'related', label: 'Jev-linked', score, member, review: member.row.joined?.review === true};
     return {kind: 'context', label: 'Activity of a linked process', score: 'Same process', member};
   }
@@ -97,7 +98,8 @@
     const lines = ['## Incident chain from Jev results', '',
       `${processes} process${processes === 1 ? '' : 'es'} and ${others} ${others === 1 ? 'account, host, address or domain' : 'accounts, hosts, addresses or domains'}, each under the member that brought it in, with what each process did. Built from Jev's decisions, the links between members and their recorded activity; no AI.`, ''];
     const name = row => row.type === 'process' ? `**${plain(row.name || '?')}** (PID ${plain(row.pid ?? '?')})` : `**${plain(row.name)}** (${row.type === 'user' ? 'account' : row.type})`;
-    const how = row => row.key === report.seed.key ? 'confirmed seed' : row.joined ? `Jev ${pct(row.joined.probability)}${row.joined.review ? ', review' : ''}` : 'linked';
+    const how = row => row.key === report.seed.key ? 'confirmed seed' : row.joined?.basis === 'injection' ? 'joined by injection, no Jev question'
+      : row.joined ? `Jev ${pct(row.joined.probability)}${row.joined.review ? ', review' : ''}` : 'linked';
     const seen = new Set();
     const walk = (row, depth, via) => {
       if (seen.has(row.key)) return;
@@ -156,7 +158,7 @@
     return ranked.slice(0, MAX_NARRATIVE_ROWS).sort((a, b) => a.index - b.index).map(({row}) => {
       const origin = originOf(row, report, memberMap);
       const link = origin.kind === 'seed' ? {type: 'confirmed_seed'} : origin.kind === 'related'
-        ? {type: 'jev_linked', probability: origin.member.probability ?? null, via: (origin.member.row.joined?.via || []).map(v => `${v.link} from ${v.from}`)}
+        ? {type: origin.member.basis === 'injection' ? 'joined_by_injection' : 'jev_linked', probability: origin.member.basis === 'injection' ? null : origin.member.probability ?? null, via: (origin.member.row.joined?.via || []).map(v => `${v.link} from ${v.from}`)}
         : {type: 'activity_of_linked_member'};
       return Object.fromEntries(Object.entries({event_id: row.event_id, time: row.time, host: row.host, process: row.process, pid: row.pid,
         entity: row.entity, kind: row.kind, detail: row.detail, repeated: row.count ? repeatText(row) : undefined, link}).filter(([, v]) => v !== undefined));

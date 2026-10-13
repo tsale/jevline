@@ -1,5 +1,5 @@
 // Execution carried into a process outside the lineage: an injection into a process that was already running
-// (CLA-WS-217, October 2026: a ghosted payload allocated and wrote memory in the user's Explorer, which then
+// (a real intrusion: a ghosted payload allocated and wrote memory in the user's Explorer, which then
 // contacted new infrastructure), a child created under a spoofed parent, and an injection Jev does not link.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -181,7 +181,7 @@ test('a process Sysmon saw with its image replaced was hollowed by its creator; 
 });
 
 test('a process started through WMI for an incident process is a candidate through that process', async () => {
-  // Elastic Defend names the requester of a brokered start in process.Ext.effective_parent (CLA-WS-219, October 2026:
+  // Elastic Defend names the requester of a brokered start in process.Ext.effective_parent (a real intrusion:
   // PowerShell running a temp script, recorded as WmiPrvSE.exe's child).
   const wmi: Proc = {guid: '26BBF027-0000-6AB1-0060-000000005C00', pid: 1500, image: 'C:\\Windows\\System32\\wbem\\WmiPrvSE.exe', cmd: 'wmiprvse.exe -Embedding'};
   const script = child(56, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',

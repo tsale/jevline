@@ -46,7 +46,8 @@ function call(handler, body, headers = {}) {
   const names = r.json.report.incident.map(row => row.name);
   assert.ok(names.includes('sihost.exe') && names.includes('RuntimeBroker.exe'), names.join(', '));
   assert.equal(r.json.report.jev.transport, 'TypeSafe, this site\'s free key, on the server');
-  assert.ok(asked.length > 3 && r.json.requests.length === asked.length);
+  // Its injections and hollowing join without a question; the rest are asked.
+  assert.ok(asked.length >= 3 && r.json.requests.length === asked.length);
   assert.ok(asked.every(request => request.state.analyst_context === 'Analyst-confirmed 2.8.exe execution.'));
   r = await call(handler, {files, seed: 'name:2.8.exe', context: 'Again, by name.'});
   assert.equal(r.status, 200, 'any seed selector works');
