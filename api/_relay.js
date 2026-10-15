@@ -5,7 +5,8 @@
 'use strict';
 
 const API = 'https://api.typesafe.ai/v1/systemone';
-const MODEL = 'jev-1.13.0';  // engine/src/jev.ts MODEL (tests/test_relay.js checks they match)
+// The alias or one release, as the engine's MODEL_ID (tests/test_relay.js checks they match).
+const MODEL_ID = /^jev-(latest|\d+\.\d+\.\d+)$/;
 const MAX_BODY = 256 * 1024;
 const WINDOW_MS = 10 * 60 * 1000;
 // Requests per visitor address per window, per running instance.
@@ -16,12 +17,12 @@ const MAX_CONTEXT = 500;
 
 const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 
-// Why a body is not a Jev request as the engine builds one, or null: the engine's model, an object state
+// Why a body is not a Jev request as the engine builds one, or null: a Jev model, an object state
 // (with an analyst context of at most 500 characters when it has one), and 1-60 Noul or Choice questions,
 // each with instructions. Incident questions are Nouls; questions that learn a log schema are Choices.
 function requestProblem(body) {
   const bad = 'Not a Jev request from this site.';
-  if (!isObj(body) || Object.keys(body).sort().join() !== 'model,questions,state' || body.model !== MODEL || !isObj(body.state) || !isObj(body.questions)) return bad;
+  if (!isObj(body) || Object.keys(body).sort().join() !== 'model,questions,state' || typeof body.model !== 'string' || !MODEL_ID.test(body.model) || !isObj(body.state) || !isObj(body.questions)) return bad;
   const context = body.state.analyst_context;
   if (context !== undefined && (typeof context !== 'string' || context.length > MAX_CONTEXT)) return bad;
   const questions = Object.values(body.questions);
@@ -111,4 +112,4 @@ function createHandler({fetchImpl = (...args) => fetch(...args), now = Date.now}
   };
 }
 
-module.exports = {createHandler, requestProblem, readJson, LIMITS, MODEL};
+module.exports = {createHandler, requestProblem, readJson, LIMITS, MODEL_ID};

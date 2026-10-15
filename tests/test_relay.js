@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {Readable} = require('node:stream');
-const {createHandler, LIMITS, MODEL} = require('../api/_relay.js');
+const {createHandler, LIMITS, MODEL_ID} = require('../api/_relay.js');
 
 // The relay must never log keys or events.
 for (const name of ['log', 'info', 'warn', 'error', 'debug']) console[name] = () => { throw new Error(`relay wrote to console.${name}`); };
@@ -32,13 +32,15 @@ async function engineRequests(file, seed, p) {
     return {answers: Object.fromEntries(Object.keys(JSON.parse(body).questions).map(label => [label, {type: 'noul', noul: p}]))};
   };
   await analyze(loaded, findSeed(loaded, seed).key, new JevClient(transport), {description: 'Analyst-confirmed 2.8.exe execution on CLA-WS-214.',
-    model: MODEL, threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 2000, transport: 'test'});
+    model: 'jev-1.14.0', threshold: 0.8, batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 2000, transport: 'test'});
   return requests;
 }
 
 (async () => {
-  const {MODEL: engineModel} = await import(path.join(__dirname, '..', 'engine', 'src', 'jev.ts'));
-  assert.equal(MODEL, engineModel, 'the relay checks requests against the engine\'s model');
+  const {MODEL, MODEL_ID: engineModelId} = await import(path.join(__dirname, '..', 'engine', 'src', 'jev.ts'));
+  assert.equal(MODEL_ID.source, engineModelId.source, 'the relay accepts the models the engine may name');
+  assert.ok(MODEL_ID.test(MODEL) && MODEL_ID.test('jev-1.13.0') && MODEL_ID.test('jev-2.0.10'));
+  for (const bad of ['jev-1.14', 'jev-latest-2', 'jev-1.14.0-beta', 'gpt-5', '', 'xjev-1.14.0']) assert.ok(!MODEL_ID.test(bad), bad);
   const requests = await engineRequests(path.join(__dirname, '..', 'examples', 'malicious_events.json'), 'name:2.8.exe', 0.95);
   // Its injections and hollowing join without a question, so three questions remain; the checks below use all three.
   assert.ok(requests.length >= 3);
@@ -46,7 +48,7 @@ async function engineRequests(file, seed, p) {
   for (const body of requests) assert.equal(requestProblem(body), null);
 
   const upstream = [];
-  const answer = {model: MODEL, answers: {C1: {type: 'noul', noul: 0.42}}};
+  const answer = {model: 'jev-1.14.0', answers: {C1: {type: 'noul', noul: 0.42}}};
   let reply = () => ({status: 200, text: async () => JSON.stringify(answer)});
   const fetchImpl = async (url, init) => { upstream.push({url, init}); return reply(); };
   let clock = 0;

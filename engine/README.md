@@ -36,6 +36,7 @@ The seed can be a process (an event ID such as `line-12057` or the export's own 
 | `--concurrency` | `8` | Jev requests in flight |
 | `--rounds` | `20` | Most expansion rounds |
 | `--max-candidates` | `2000` | Stop, and say so, if one round would ask more questions than this |
+| `--model` | `jev-latest` | `jev-latest` follows TypeSafe's newest Jev: the run asks which release that is (one tiny request, only when Jev is needed), uses that release in every request and names it in the report. Give one release, such as `jev-1.13.0`, to stay on it; replaying a cache made with a release (`--offline --cache`) needs that same `--model` |
 | `--cache <file>` | | Reuse and record Jev answers by request hash; a repeated run is exact and free |
 | `--ungrouped` | | Ask about every process separately, even ones identical apart from PID and time |
 | `--format` | `auto` | `json`, `ndjson`, `csv` or `text` instead of detecting it |

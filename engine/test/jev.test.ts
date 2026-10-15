@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {JevClient, sha256, TransportError, type JevResponse, type Transport} from '../src/jev.ts';
+import {JevClient, lazyModel, MODEL, resolveModel, sha256, TransportError, type JevResponse, type Transport} from '../src/jev.ts';
 import {answerFile, requestLog as requestLogFile} from '../src/files.ts';
 import {ecs} from './incident.ts';
 
@@ -95,4 +95,36 @@ test('CLI: inspect, analyze offline with a report and request log, clear errors'
   assert.match(cli('analyze', path, '--seed', 'name:nothing.exe', '--context', 'x', '--offline').stderr, /no process start named nothing.exe/);
   assert.match(cli('analyze', path, '--seed', 'line-1', '--offline').stderr, /--context is required/);
   assert.match(cli('inspect', join(dir, 'missing.log')).stderr, /ENOENT/);
+});
+
+test('jev-latest is resolved to the release that answers, once, and a pinned release is not asked', async () => {
+  const sent: {model: string}[] = [];
+  const transport: Transport = async body => { sent.push(JSON.parse(body)); return {...answer, model: 'jev-1.14.0'}; };
+  assert.equal(await resolveModel(transport), 'jev-1.14.0');
+  assert.equal(sent[0]!.model, MODEL);
+  assert.equal(await resolveModel(transport, 'jev-1.13.0'), 'jev-1.13.0');
+  assert.equal(sent.length, 1, 'a pinned release needs no question');
+  const lazy = lazyModel(transport);
+  assert.equal(sent.length, 1, 'nothing is asked until something needs the release');
+  assert.deepEqual(await Promise.all([lazy(), lazy()]), ['jev-1.14.0', 'jev-1.14.0']);
+  assert.equal(sent.length, 2, 'one question for any number of users');
+});
+
+test('a model that is not the alias or a release is refused; an answer without a release is an error; failure is retried later', async () => {
+  const transport: Transport = async () => ({...answer, model: 'jev-beta'});
+  await assert.rejects(resolveModel(transport, 'gpt-5'), /jev-latest or one release/);
+  await assert.rejects(resolveModel(transport), /did not say which Jev release/);
+  await assert.rejects(resolveModel(async () => ({answers: {}})), /did not say which Jev release/);
+  let fail = true;
+  const lazy = lazyModel(async () => { if (fail) throw new TransportError('HTTP 401', false); return {...answer, model: 'jev-1.14.0'}; });
+  await assert.rejects(lazy(), /HTTP 401/);
+  fail = false;
+  assert.equal(await lazy(), 'jev-1.14.0', 'a failed lookup is not remembered');
+});
+
+test('cached answers say which release gave them', async () => {
+  const client = new JevClient(async () => ({...answer, model: 'jev-1.14.0'}));
+  await client.ask('{"x":1}', 1);
+  await client.ask('{"x":1}', 1);
+  assert.deepEqual(client.calls.map(c => [c.cached, c.model]), [[false, 'jev-1.14.0'], [true, 'jev-1.14.0']]);
 });
