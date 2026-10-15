@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 import {FORMATS, type Format} from './read.ts';
 import {analyze, defaultThreads, findSeed, iso, load, unfold, type Input, type Report} from './analyze.ts';
-import {JevClient, MODEL, typesafe} from './jev.ts';
+import {JevClient, MODEL, lazyModel, typesafe} from './jev.ts';
 import {standIn} from './standin.ts';
 import {fingerprint, learn, SchemaCache, type Mapping} from './schema.ts';
 import {answerFile, mappingFile, requestLog} from './files.ts';
@@ -38,7 +38,7 @@ Options:
   --concurrency <n>       Jev requests in flight (default 8)
   --rounds <n>            Most expansion rounds (default 20)
   --max-candidates <n>    Stop if one round would ask about more processes (default 2000)
-  --model <id>            Jev model (default ${MODEL})
+  --model <id>            Jev model: ${MODEL} (default; looked up at the start and reported) or one release such as jev-1.14.0
   --out <dir>             Write report.json and requests.jsonl (every exact request) there
   --cache <file>          Reuse and record Jev answers by request hash (JSONL); replays are exact and free
   --schemas <file>        Where mappings of unknown log schemas are kept (default ~/.jevline/schemas.jsonl)
@@ -190,18 +190,20 @@ async function main(argv: string[]) {
     if (!key) throw new Error('no TypeSafe key: set TYPESAFE_API_KEY or add it to a private .env (or use --offline)');
     transport = typesafe(key); transportName = 'typesafe';
   }
+  // The stand-in has no versions; with Jev the run names the release the alias means today.
+  const resolve = values.offline ? async () => values.model! : lazyModel(transport, values.model);
   if (values.out) mkdirSync(values.out, {recursive: true, mode: 0o700});
   const clientOptions = {concurrency, ...(values.cache ? {answers: answerFile(values.cache)} : {}), ...(values.out ? {onRequest: requestLog(join(values.out, 'requests.jsonl'))} : {})};
   // Mappings the stand-in guesses are not kept, so a later run with Jev learns them properly.
   const schemaCache = new SchemaCache(values.offline ? undefined : mappingFile(schemaFile));
   const schemaClient = new JevClient(transport, clientOptions);
   const loaded = await load(inputs, {threads,
-    learn: profiles => learn(profiles, schemaClient, schemaCache, values.model!, values.offline ? 'stand-in' : 'jev')});
+    learn: profiles => learn(profiles, schemaClient, schemaCache, resolve, values.offline ? 'stand-in' : 'jev')});
   const {key, note} = findSeed(loaded, values.seed);
   const confirmed = (values.also ?? []).map(selector => findSeed(loaded, selector).key).filter(k => k !== key);
   const client = new JevClient(transport, clientOptions);
   const {report} = await analyze(loaded, key, client, {
-    description: values.context, model: values.model!, threshold: number(values.threshold, 0.8, 'threshold', 0, 1),
+    description: values.context, model: await resolve(), threshold: number(values.threshold, 0.8, 'threshold', 0, 1),
     entityThreshold: number(values['entity-threshold'], 0.5, 'entity-threshold', 0, 1), context: values['context-lines'],
     margin: number(values.margin, 0.05, 'margin', 0, 1), batchSize: number(values.batch, 1, 'batch', 1, 200), maxRounds: number(values.rounds, 20, 'rounds', 1, 1000),
     maxCandidatesPerRound: number(values['max-candidates'], 2000, 'max-candidates', 1), transport: transportName,

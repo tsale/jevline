@@ -97,11 +97,12 @@ function createHandler({transport = null, env = process.env, now = Date.now} = {
         if (++asked > MAX_JEV_REQUESTS) throw new jev.TransportError(`This analysis needs more than ${MAX_JEV_REQUESTS} Jev questions, more than the free key allows. Use your own TypeSafe key.`, false);
         return base(requestBody, signal);
       };
+      const model = jev.lazyModel(capped);
       const learned = [];
       const cache = new schema.SchemaCache({load: () => (body.mappings || []).filter(m => isObj(m) && typeof m.fingerprint === 'string' && isObj(m.roles)),
         save: mapping => learned.push(mapping)});
       const files = body.files.map(f => new File([f.text], f.name));
-      const loaded = await browser.loadFiles(files, {learn: profiles => schema.learn(profiles, new jev.JevClient(capped), cache, jev.MODEL, 'jev')});
+      const loaded = await browser.loadFiles(files, {learn: profiles => schema.learn(profiles, new jev.JevClient(capped), cache, model, 'jev')});
       if (!analyzing) return send(200, {summary: browser.summary(loaded), seeds: browser.seeds(loaded), mappings: learned});
       let seedKey;
       if (body.seed.startsWith('key:')) {
@@ -112,7 +113,7 @@ function createHandler({transport = null, env = process.env, now = Date.now} = {
       }
       const requests = [];
       const client = new jev.JevClient(capped, {concurrency: 8, onRequest: (sha256, text) => requests.push({sha256, body: JSON.parse(text)})});
-      const {report} = await browser.analyze(loaded, seedKey, client, {description: body.context.trim(), model: jev.MODEL, threshold: 0.8, margin: 0.05,
+      const {report} = await browser.analyze(loaded, seedKey, client, {description: body.context.trim(), model: await model(), threshold: 0.8, margin: 0.05,
         batchSize: 1, maxRounds: 20, maxCandidatesPerRound: 2000, transport: 'TypeSafe, this site\'s free key, on the server'});
       const requestLog = JSON.stringify(requests);
       return send(200, {report, requests: bytes(requestLog) <= MAX_REQUEST_LOG ? requests : null, mappings: learned});

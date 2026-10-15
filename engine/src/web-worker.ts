@@ -4,7 +4,7 @@
 // (ui/app.js) sends {type: 'load' | 'analyze'} messages and receives progress, the loaded summary and the
 // report. Nothing here stores anything: files, answers and keys live only as long as the page.
 import {analyze, findSeed, loadFiles, relay, seeds, summary, type Loaded} from './browser.ts';
-import {JevClient, MODEL, type JevResponse} from './jev.ts';
+import {JevClient, MODEL, lazyModel, type JevResponse} from './jev.ts';
 import {learn, SchemaCache, type StoredMapping} from './schema.ts';
 
 interface Access { endpoint: string; key?: string }
@@ -21,16 +21,20 @@ let received = 0;  // Jev answers received in this session, for the page to say 
 const answers = new Map<string, JevResponse>();
 const memory = {load: () => answers.entries(), save: (sha: string, response: JevResponse) => { answers.set(sha, response); }};
 
+let model: () => Promise<string> = async () => MODEL;
+
 async function handle(message: Message) {
   if (message.type === 'load') {
     loaded = null;
     const {access} = message;
+    // The release `jev-latest` means now, looked up when something needs it; the analysis that follows asks the same one.
+    model = lazyModel(relay(access.endpoint, access.key));
     const cache = new SchemaCache({load: () => message.mappings, save: mapping => post({type: 'mapping', mapping})});
     // Unknown schemas are learned with Jev (the visitor's key, or the site's), once per event type; this
     // browser remembers the mappings, so the same log source asks nothing next time.
     const learner = async (profiles: Parameters<typeof learn>[0]) => {
       post({type: 'progress', stage: 'learn', message: `Learning ${Object.keys(profiles).length} event types from an unknown schema with Jev…`});
-      return learn(profiles, new JevClient(relay(access.endpoint, access.key), {answers: memory}), cache, MODEL, 'jev');
+      return learn(profiles, new JevClient(relay(access.endpoint, access.key), {answers: memory}), cache, model, 'jev');
     };
     loaded = await loadFiles(message.files, {learn: learner,
       onProgress: p => post({type: 'progress', stage: 'read', file: p.file, index: p.index, bytes: p.bytes, size: p.size, pass: p.pass})});
@@ -55,7 +59,7 @@ async function handle(message: Message) {
     post({type: 'progress', stage: 'ask', round, answered: ++answered});
     return response;
   }, {concurrency: 6, answers: memory, onRequest: (sha256, body) => requests.push({sha256, body: JSON.parse(body) as unknown})});
-  const {report} = await analyze(data, key, client, {description: message.context, model: MODEL, threshold: 0.8, margin: 0.05, batchSize: 1,
+  const {report} = await analyze(data, key, client, {description: message.context, model: await model(), threshold: 0.8, margin: 0.05, batchSize: 1,
     maxRounds: 20, maxCandidatesPerRound: 2000, transport: message.access.key ? 'TypeSafe, your key, through this site\'s relay' : 'TypeSafe, this site\'s key, through its relay',
     onRound: (n, groups) => { round = n; post({type: 'progress', stage: 'round', round: n, questions: groups.length}); }});
   post({type: 'report', report, requests});

@@ -47,7 +47,12 @@ function call(handler, body, headers = {}) {
   assert.ok(names.includes('sihost.exe') && names.includes('RuntimeBroker.exe'), names.join(', '));
   assert.equal(r.json.report.jev.transport, 'TypeSafe, this site\'s free key, on the server');
   // Its injections and hollowing join without a question; the rest are asked.
+  // (Plus one probe that asks which release jev-latest is; every real question then names that release.)
+  const probes = asked.filter(request => request.model === 'jev-latest');
+  assert.equal(probes.length, 1);
+  asked.splice(asked.indexOf(probes[0]), 1);
   assert.ok(asked.length >= 3 && r.json.requests.length === asked.length);
+  assert.ok(asked.every(request => request.model === 'jev-1.13.0'), 'the run names the release that answered');
   assert.ok(asked.every(request => request.state.analyst_context === 'Analyst-confirmed 2.8.exe execution.'));
   r = await call(handler, {files, seed: 'name:2.8.exe', context: 'Again, by name.'});
   assert.equal(r.status, 200, 'any seed selector works');
@@ -55,7 +60,8 @@ function call(handler, body, headers = {}) {
   // Unknown log schemas are learned with the free key too, and the mappings come back for the browser to keep.
   const {falconFdr} = await import(path.join(__dirname, '..', 'engine', 'test', 'incident.ts'));
   const {standIn} = await import(path.join(__dirname, '..', 'engine', 'src', 'standin.ts'));
-  const learner = createHandler({transport: standIn()});
+  const guess = standIn();
+  const learner = createHandler({transport: async body => ({...await guess(body), model: 'jev-1.13.0'})});
   r = await call(learner, {files: [{name: 'fdr.ndjson', text: falconFdr().join('\n')}]});
   assert.equal(r.status, 200);
   assert.ok(r.json.mappings.length >= 7 && r.json.seeds.some(s => s.name === 'invoice.exe'));

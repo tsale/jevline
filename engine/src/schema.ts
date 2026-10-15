@@ -358,17 +358,18 @@ export function readMapping(group: GroupProfile, kind: LearnedKind, kindConfiden
 
 /** Mappings for every group: from the cache, or asked of Jev (the kind, then the fields for that
  * kind; groups in parallel). Groups of kind "other" need only the first question. */
-export async function learn(profiles: Profiles, client: JevClient, cache: SchemaCache, model: string, learned: Mapping['learned'] = 'jev'): Promise<Map<string, Mapping>> {
+export async function learn(profiles: Profiles, client: JevClient, cache: SchemaCache, model: string | (() => Promise<string>), learned: Mapping['learned'] = 'jev'): Promise<Map<string, Mapping>> {
   const out = new Map<string, Mapping>();
   await Promise.all(Object.values(profiles).map(async group => {
     const cached = cache.get(fingerprint(group));
     if (cached) { out.set(group.key, {...cached, group: group.key}); return; }
-    const [kind, kindConfidence] = readKind(await client.ask(kindRequest(group, model), 1));
+    const id = typeof model === 'string' ? model : await model();  // Only a mapping Jev must learn needs the release.
+    const [kind, kindConfidence] = readKind(await client.ask(kindRequest(group, id), 1));
     let mapping: Mapping;
     if (kind === 'other') {
       mapping = readMapping(group, kind, kindConfidence, null, new Map(), learned);
     } else {
-      const {requests, labels} = rolesRequest(group, kind, model);
+      const {requests, labels} = rolesRequest(group, kind, id);
       const responses = await Promise.all(requests.map(r => client.ask(r.body, r.questions)));
       mapping = readMapping(group, kind, kindConfidence, {answers: Object.assign({}, ...responses.map(r => r.answers))}, labels, learned);
     }
